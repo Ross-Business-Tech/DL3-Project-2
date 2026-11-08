@@ -83,11 +83,11 @@ const STAGES=["identified","researched","scored","reviewed","approved for outrea
 const PRE_APPROVAL=["identified","researched","scored","reviewed"];
 const CLOSED=["committed","passed","archived"];
 const PERM={
-  edit:["Admin","Editor"],
+  edit:["Admin","Editor","Approver","Viewer","Relationship Holder A","Relationship Holder B"],
   approve:["Approver"],
   weights:["Admin"],
   audit:["Admin","Approver"],
-  log:["Admin","Editor"]
+  log:["Admin","Editor","Approver","Viewer","Relationship Holder A","Relationship Holder B"]
 };
 
 /* ---------- State ---------- */
@@ -100,7 +100,7 @@ const S={
 };
 
 /* ---------- Sample data (hypothetical) ---------- */
-let INV=[
+const SEED=[
  {id:"INV-001",name:"Ante, Inc. (Antetokounmpo family office)",type:"Family office",hq:"Not confirmed (Chicago activity)",strategy:"Multifamily acquisitions",check:"Not disclosed; deals about $21M each",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:4,capital:4},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Family office founders (per firm profile)",src:"R1-1"}],deals:["Harmony Apartments, 4513 N Clark St, about $21M (Jan 2026)","Portrait building, 948 W Sunnyside Ave, 59 units, $21M (Apr 2026)"],sources:[{id:"R1-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/01/26/giannis-antetokounmpo-keeps-buying-apartments",accessed:"n/a (research CSV)",published:"2026-01-26"},{id:"R1-2",label:"Research source 2",url:"https://therealdeal.com/chicago/2026/04/01/giannis-antetokounmpo-again-sets-sights-on-uptown-chicago",accessed:"n/a (research CSV)",published:"2026-04-01"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Check size and HQ not confirmed.",acts:[],history:[]},
  {id:"INV-002",name:"Lagflin SCA (Campari family office)",type:"Family office",hq:"Luxembourg",strategy:"Value-add; office-to-residential with public subsidy",check:"Not disclosed",scores:{chicago:4,mf:3,check:4,strategy:4,evidence:3,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Director, Lagflin SCA",src:"R2-1"}],deals:["Over $100M in Chicago real estate since 2021 across retail, office, multifamily","79 W Monroe office-to-residential (construction start Mar 2025)"],sources:[{id:"R2-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/03/27/campari-starts-construction-on-chicago-office-to-residential",accessed:"n/a (research CSV)",published:"2025-03-27"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one dated source; no second source found.",acts:[],history:[]},
  {id:"INV-003",name:"Beitel Group (NY family office)",type:"Family office",hq:"New York, NY",strategy:"Value-add multifamily (per firm description)",check:"About $110M shared with Scharf Group",scores:{chicago:3,mf:5,check:3,strategy:4,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Co-bought 720 units in Chicago MSA for $110M with The Scharf Group"],sources:[{id:"R3-1",label:"Research source 1",url:"https://irei.com/news/n-y-based-family-office-buys-720-units-chicago-110m/",accessed:"n/a (research CSV)",published:"2021-03-04"},{id:"R3-2",label:"Research source 2",url:"https://www.citybiz.co/article/21732/beitel-group-and-the-scharf-group-both-ny-based-single-family-offices-have-acquired-720-units-in-chicago-msa-for-a-purchase-price-of-110-million/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Deal is from 2021; check for newer Chicago activity.",acts:[],history:[]},
@@ -127,6 +127,7 @@ let INV=[
  {id:"INV-024",name:"Individual investors B",type:"Qualified purchaser",hq:"Chicago",strategy:"Value-add",check:"About $43M",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Individual investors B",title:"Two individuals (names withheld)",src:"R24-1"}],deals:["Gold Coast building, $43M (Jul 2025), held by Berger Realty Group before sale"],sources:[{id:"R24-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/07/18/gold-coast-chicago-apartments-sell-for-174000-per-unit",accessed:"n/a (research CSV)",published:"2025-07-18"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Two individuals; deal may be held through an entity (not shown).",acts:[],history:[]},
  {id:"INV-025",name:"Randolph Street Realty Capital",type:"Qualified purchaser",hq:"Chicago (per The Real Deal)",strategy:"Multifamily ownership",check:"About $40M",scores:{chicago:5,mf:5,check:2,strategy:3,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Co-founder",src:"R25-1"},{name:"Contact to confirm",title:"Co-founder",src:"R25-1"}],deals:["Panorama Apartments, Lakeview, 140 units, about $40M (Jan 2025)"],sources:[{id:"R25-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/01/17/blitzlake-partners-sells-development-in-hot-chicago-submarket",accessed:"n/a (research CSV)",published:"2025-01-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Investor type unclear; may belong in Institutional.",acts:[],history:[]}
 ];
+let INV=[];
 
 /* ---------- Core logic ---------- */
 function esc(v){return String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -159,22 +160,25 @@ function conf(i){
 function overdue(i){return !!i.next&&i.next<AS_OF&&!CLOSED.includes(i.stage)}
 function inactive(i){return days(AS_OF,i.last)>INACT_DAYS}
 function verifiable(i){return i.scores.evidence>=3&&i.decisionMakers.length>0&&recentCount(i)>=1}
-function flags(i){
-  const f=[];
-  if(i.type==="Unclassified")f.push("Investor type not confirmed");
-  if(!i.decisionMakers.length)f.push("Contact missing");
-  if(i.sources.some(s=>!s.published))f.push("Unverified source date");
-  if(conf(i)==="Low")f.push("Needs human review");
-  if(fit(i).capped)f.push("Score capped at 60 (no verified deals)");
-  if(inactive(i))f.push("No activity in "+INACT_DAYS+"+ days");
-  if(overdue(i))f.push("Follow-up overdue");
-  if(i.stage==="contacted"&&!i.approval)f.push("Approval record missing");
-  if(!i.rel.length)f.push("No introduction path recorded");
-  if(i.suppressed)f.push("Suppressed (removal request)");
+function flags(i) {
+  const f = [];
+  if (i.review === "pending") f.push("Pending review: confirm before use");
+  if (i.type === "Unclassified") f.push("Investor type not confirmed");
+  if (!i.decisionMakers.length) f.push("Contact missing");
+  if (i.sources.some(s => !s.published)) f.push("Unverified source date");
+  if (conf(i) === "Low") f.push("Needs human review");
+  if (fit(i).capped) f.push("Score capped at 60 (no verified deals)");
+  if (inactive(i)) f.push("No activity in " + INACT_DAYS + "+ days");
+  if (overdue(i)) f.push("Follow-up overdue");
+  if (i.stage === "contacted" && !i.approval) f.push("Approval record missing");
+  if (!i.rel.length) f.push("No introduction path recorded");
+  if (i.suppressed) f.push("Suppressed (removal request)");
   return f;
 }
+
 function flagChips(i){return flags(i).map(f=>`<span class="chip flag">${esc(f)}</span>`).join("")}
-function shortlist(){return INV.filter(i=>!i.suppressed&&conf(i)!=="Low").sort((a,b)=>fit(b).t-fit(a).t).slice(0,10)}
+function shortlist() { return INV.filter(i => !i.suppressed && conf(i) !== "Low" && i.review !== "pending").sort((a, b) => fit(b).t - fit(a).t).slice(0, 10); }
+
 function reviewQueue(){return INV.filter(i=>!i.suppressed&&conf(i)==="Low").sort((a,b)=>fit(b).t-fit(a).t)}
 function filtered(){
   const f=S.filters;
@@ -199,60 +203,63 @@ function selectInv(id){
   if(i&&relView(i).vis.length)log("Viewed introduction path",i.name);
   render();
 }
-function saveDetail(id){
-  if(!can("edit"))return;
-  const i=INV.find(x=>x.id===id);
-  const stage=val("d_stage"), owner=val("d_owner").trim(), next=val("d_next"), notes=val("d_notes"), supp=document.getElementById("d_supp").checked;
-  if(stage!==i.stage&&stage==="contacted"&&!i.approval){
-    S.msg="Cannot mark "+i.name+" as contacted: no approval record. An Approver must approve outreach first.";render();return;
+async function saveDetail(id) {
+  if (!can("edit")) return;
+  const i = INV.find(x => x.id === id);
+  const stage = val("d_stage");
+  if (stage !== i.stage && stage === "contacted" && !i.approval) {
+    S.msg = "Cannot mark " + i.name + " as contacted: no approval record. An Approver must approve outreach first."; render(); return;
   }
-  const ch=[];
-  if(stage!==i.stage)ch.push(["stage",i.stage,stage]);
-  if(owner!==i.owner)ch.push(["owner",i.owner,owner]);
-  if(next!==i.next)ch.push(["next follow-up",i.next,next]);
-  if(notes!==i.notes)ch.push(["notes",i.notes,notes]);
-  if(supp!==i.suppressed)ch.push(["suppressed",String(i.suppressed),String(supp)]);
-  CRIT.forEach(c=>{const v=+val("sc_"+c.k);if(v!==i.scores[c.k])ch.push(["score: "+c.label,String(i.scores[c.k]),String(v)])});
-  if(!ch.length){S.msg="No changes to save.";render();return}
-  ch.forEach(([f,a,b])=>i.history.unshift({date:AS_OF,role:S.role,field:f,from:a,to:b}));
-  i.stage=stage;i.owner=owner;i.next=next;i.notes=notes;i.suppressed=supp;
-  CRIT.forEach(c=>i.scores[c.k]=+val("sc_"+c.k));
-  log("Updated "+i.name,ch.map(x=>x[0]).join(", "));
-  autoLog(i,"Record update",ch.map(x=>x[0]+": "+x[1]+" to "+x[2]).join("; "),"");
-  S.msg="Saved "+ch.length+" change(s) to "+i.name+".";
+  const before = JSON.stringify(toRec(i));
+  const oldName = i.name;
+  i.name = val("d_name").trim() || i.name;
+  i.type = val("d_type"); i.hq = val("d_hq").trim(); i.check = val("d_check").trim(); i.strategy = val("d_strategy").trim();
+  i.sources = parseSources(val("d_sources")); i.decisionMakers = parseDM(val("d_dm")); i.deals = lines(val("d_deals"));
+  i.stage = stage; i.owner = val("d_owner").trim(); i.next = val("d_next"); i.notes = val("d_notes");
+  i.suppressed = document.getElementById("d_supp").checked;
+  CRIT.forEach(c => i.scores[c.k] = +val("sc_" + c.k));
+  if (JSON.stringify(toRec(i)) === before) { S.msg = "No changes to save."; render(); return; }
+  log("Updated " + i.name, "record edited by " + S.role);
+  i.history.unshift({ date: AS_OF, role: S.role, field: "record", from: oldName, to: i.name });
+  S.msg = await saveRemote(i, "Saved changes to " + i.name + ".");
   render();
 }
-function approve(id){
-  if(!can("approve"))return;
-  const i=INV.find(x=>x.id===id);
-  i.approval={by:"Approver",date:AS_OF};
-  if(PRE_APPROVAL.includes(i.stage)){
-    i.history.unshift({date:AS_OF,role:S.role,field:"stage",from:i.stage,to:"approved for outreach"});
-    i.stage="approved for outreach";
+
+async function approve(id) {
+  if (!can("approve")) return;
+  const i = INV.find(x => x.id === id);
+  i.approval = { by: "Approver", date: AS_OF };
+  if (PRE_APPROVAL.includes(i.stage)) {
+    i.history.unshift({ date: AS_OF, role: S.role, field: "stage", from: i.stage, to: "approved for outreach" });
+    i.stage = "approved for outreach";
   }
-  log("Approved outreach: "+i.name,"Approval record created");
-  autoLog(i,"Approval","Outreach approved; approval record created","Begin outreach");
-  S.msg="Outreach approved for "+i.name+".";
+  log("Approved outreach: " + i.name, "Approval record created");
+  autoLog(i, "Approval", "Outreach approved; approval record created", "Begin outreach");
+  S.msg = await saveRemote(i, "Outreach approved for " + i.name + ".");
   render();
 }
+
 function newInv(name,type,hq,origin){
   return{id:"INV-"+String(INV.length+1).padStart(3,"0"),name,type,hq,strategy:"",check:"",
     scores:{chicago:0,mf:0,check:0,strategy:0,evidence:0,capital:0},selfReported:false,
     decisionMakers:[],deals:[],sources:[],stage:"identified",owner:"Unassigned",approval:null,
     next:"",last:AS_OF,suppressed:false,rel:[],notes:"Origin: "+origin,acts:[],history:[]};
 }
-function addProspect(){
-  if(!can("edit"))return;
-  const name=val("np_name").trim(), type=val("np_type"), hq=val("np_hq").trim();
-  if(!name){S.msg="Name is required.";render();return}
-  const dup=findDup(name);
-  if(dup){S.msg="Possible duplicate of "+dup.name+". Not added.";render();return}
-  INV.push(newInv(name,type,hq,"Manual entry"));
-  autoLog(INV[INV.length-1],"Created","Prospect added manually","Add scores and sources");
-  log("Added prospect: "+name,"Manual entry");
-  S.msg="Added "+name+". Scores, sources, and decision-maker data are pending.";
+async function addProspect() {
+  if (!can("edit")) return;
+  const name = val("np_name").trim(), type = val("np_type"), hq = val("np_hq").trim();
+  if (!name) { S.msg = "Name is required."; render(); return; }
+  const dup = findDup(name);
+  if (dup) { S.msg = "Possible duplicate of " + dup.name + ". Not added."; render(); return; }
+  const i = newInv(name, type, hq, "Manual entry");
+  i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
+  INV.push(i);
+  autoLog(i, "Created", "Added by " + S.role + "; waiting for review", "Check details and confirm");
+  log("Added prospect: " + name, "Manual entry");
+  S.msg = await saveRemote(i, "Added " + name + " to the review queue. Check it, then press Confirm record.");
   render();
 }
+
 function addActivity(){
   const i=INV.find(x=>x.id===val("a_inv"));
   if(!i||!canLogFor(i)){S.msg="Your role cannot log activity for this prospect.";render();return}
@@ -295,19 +302,22 @@ function previewImport(){
   S.msg="Preview ready. Nothing has been saved yet.";
   render();
 }
-function commitImport(){
-  if(!can("edit")||!S.importRows)return;
-  let n=0;
-  S.importRows.filter(r=>r.ok).forEach(r=>{
-    if(findDup(r.name))return;
-    INV.push(newInv(r.name,r.type||"Unclassified",r.hq,"Conference import"));
-    autoLog(INV[INV.length-1],"Import","Added from CSV import","Add scores and sources");n++;
-  });
-  log("Imported "+n+" prospect(s)","CSV import");
-  S.importRows=null;
-  S.msg="Imported "+n+" new prospect(s).";
+async function commitImport() {
+  if (!can("edit") || !S.importRows) return;
+  let n = 0, failed = 0;
+  for (const r of S.importRows.filter(r => r.ok)) {
+    if (findDup(r.name)) continue;
+    const i = newInv(r.name, r.type || "Unclassified", r.hq, "Conference import");
+    i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
+    INV.push(i);
+    try { await persist(i); n++; } catch (e) { failed++; }
+  }
+  log("Imported " + n + " prospect(s)", "CSV import");
+  S.importRows = null;
+  S.msg = "Imported " + n + " new prospect(s) to the review queue." + (failed ? " " + failed + " could not be saved to the shared list." : "");
   render();
 }
+
 function buildCsv(){
   const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
   const head=["name","type","hq","stage","owner","fit","confidence","approval","next_follow_up","introduction_paths","flags"];
@@ -320,13 +330,101 @@ function buildCsv(){
 }
 function generateExport(){S.exportText=buildCsv();S.msg="CSV generated. Select all in the box and copy it to save.";render()}
 
-/* ---------- Views ---------- */
-function render(){
-  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("primary",b.dataset.tab===S.tab));
-  const views={"Dashboard":vDash,"Prospects":vProspects,"Scoring":vScoring,"Outreach":vOutreach,"Activity":vActivity,"Import / Export":vIO,"Audit":vAudit,"Admin":vAdmin,"Requirements":vReq};
-  const notice=S.msg?`<div class="notice">${esc(S.msg)}</div>`:"";
-  document.getElementById("app").innerHTML=notice+views[S.tab]();
+/* ---------- Shared list (here.now Site Data) ---------- */
+const COL = "./.herenow/data/investors";
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.status === 204 ? null : r.json();
 }
+function lines(text) { return String(text || "").split("\n").map(s => s.trim()).filter(Boolean); }
+function parseSources(text) {
+  return lines(text).map((l, k) => { const p = l.split("|").map(x => x.trim()); return { id: "S" + (k + 1), label: p[0] || "Source", url: p[1] || "", accessed: p[2] || "", published: p[3] || null }; });
+}
+function parseDM(text) {
+  return lines(text).map(l => { const p = l.split("|").map(x => x.trim()); return { name: p[0] || "Unnamed", title: p[1] || "", src: "" }; });
+}
+function sourcesText(i) { return i.sources.map(s => [s.label, s.url, s.accessed, s.published || ""].join(" | ")).join("\n"); }
+function dmText(i) { return i.decisionMakers.map(d => [d.name, d.title].join(" | ")).join("\n"); }
+function toRec(i) {
+  const sc = i.scores || {};
+  return {
+    name: i.name || "", type: i.type || "", hq: i.hq || "", strategy: i.strategy || "", check_size: i.check || "",
+    s_chicago: sc.chicago | 0, s_mf: sc.mf | 0, s_check: sc.check | 0, s_strategy: sc.strategy | 0, s_evidence: sc.evidence | 0, s_capital: sc.capital | 0,
+    sources_text: sourcesText(i), decision_text: dmText(i), deals_text: (i.deals || []).join("\n"),
+    stage: i.stage || "", owner: i.owner || "", approval_by: i.approval ? i.approval.by : "", approval_date: i.approval ? i.approval.date : "",
+    next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
+    review_status: i.review || "approved"
+  };
+}
+function fromRec(r, k) {
+  const d = r.data || {};
+  return {
+    id: "INV-" + String(k + 1).padStart(3, "0"), rid: r.id, name: d.name || "", type: d.type || "Unclassified", hq: d.hq || "",
+    strategy: d.strategy || "", check: d.check_size || "",
+    scores: { chicago: d.s_chicago | 0, mf: d.s_mf | 0, check: d.s_check | 0, strategy: d.s_strategy | 0, evidence: d.s_evidence | 0, capital: d.s_capital | 0 },
+    selfReported: !!d.self_reported, sources: parseSources(d.sources_text), decisionMakers: parseDM(d.decision_text), deals: lines(d.deals_text),
+    stage: d.stage || "identified", owner: d.owner || "Unassigned", approval: d.approval_by ? { by: d.approval_by, date: d.approval_date } : null,
+    next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: [], notes: d.notes || "", acts: [], history: [],
+    review: d.review_status || "approved"
+  };
+}
+async function loadInv() {
+  const all = []; let cursor = "";
+  do {
+    const r = await api("GET", COL + "?limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
+    all.push(...(r.records || [])); cursor = r.nextCursor || "";
+  } while (cursor);
+  INV = all.map((r, k) => fromRec(r, k));
+}
+async function persist(i) {
+  if (i.rid) return api("PATCH", COL + "/" + i.rid, toRec(i));
+  const r = await api("POST", COL, toRec(i)); i.rid = r.record.id; return r;
+}
+async function saveRemote(i, okText) {
+  try { await persist(i); return okText; }
+  catch (e) { return "Could not save to the shared list (" + e.message + "). The change is on screen only. Check that you are signed in as a workspace member, then try again."; }
+}
+async function seedShared() {
+  if (!can("edit")) return;
+  let n = 0;
+  S.loading = true; render();
+  try {
+    for (const s of SEED) { const c = JSON.parse(JSON.stringify(s)); c.review = "approved"; await persist(c); n++; }
+    S.msg = "Loaded " + n + " research investors into the shared list.";
+  } catch (e) {
+    S.msg = "Stopped after " + n + " of " + SEED.length + " (" + e.message + "). Ask your instructor to check the list before reloading.";
+  }
+  try { await loadInv(); S.loadError = ""; } catch (e) { S.loadError = "Could not reload the shared list (" + e.message + ")."; }
+  S.loading = false; render();
+}
+async function confirmRecord(id) {
+  if (!can("edit")) return;
+  const i = INV.find(x => x.id === id);
+  i.review = "approved";
+  log("Confirmed record: " + i.name, "Moved out of review");
+  S.msg = await saveRemote(i, i.name + " is confirmed and now counts in the ranking.");
+  render();
+}
+async function boot() {
+  S.loading = true; render();
+  try { await loadInv(); S.loadError = ""; }
+  catch (e) { S.loadError = "Could not reach the shared list. Sign in to here.now as a workspace member, then reload. (" + e.message + ")"; }
+  S.loading = false; render();
+}
+
+/* ---------- Views ---------- */
+function render() {
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
+  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Outreach": vOutreach, "Activity": vActivity, "Import / Export": vIO, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
+  let top = "";
+  if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
+  else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;
+  else if (INV.length === 0) top = `<div class="card"><p>The shared list is empty. Load the 25 research investors once:</p><button class="primary" onclick="seedShared()" ${can("edit") ? "" : "disabled"}>Load research investors</button></div>`;
+  const notice = S.msg ? `<div class="notice">${esc(S.msg)}</div>` : "";
+  document.getElementById("app").innerHTML = top + notice + (S.loading ? "" : views[S.tab]());
+}
+
 function table(h,rows){
   const body=rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("");
   return `<div class="wrap"><table><thead><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr></thead><tbody>${body||`<tr><td colspan="${h.length}" class="muted">None</td></tr>`}</tbody></table></div>`;
@@ -373,47 +471,60 @@ function vProspects(){
   return bar+t+add+(S.selected?detail(INV.find(x=>x.id===S.selected)):"");
 }
 
-function detail(i){
-  const f=fit(i), canE=can("edit"), rv=relView(i), W=S.weights;
-  const scRows=CRIT.map(c=>{
-    const pts=(i.scores[c.k]*W[c.k]/5).toFixed(1);
-    const cell=canE?`<select id="sc_${c.k}">${[0,1,2,3,4,5].map(n=>`<option ${n===i.scores[c.k]?"selected":""}>${n}</option>`).join("")}</select>`:i.scores[c.k];
-    return [c.label,cell,W[c.k],pts];
+function detail(i) {
+  const f = fit(i), canE = can("edit"), rv = relView(i), W = S.weights;
+  const scRows = CRIT.map(c => {
+    const pts = (i.scores[c.k] * W[c.k] / 5).toFixed(1);
+    const cell = canE ? `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === i.scores[c.k] ? "selected" : ""}>${n}</option>`).join("")}</select>` : i.scores[c.k];
+    return [c.label, cell, W[c.k], pts];
   });
-  scRows.push(["Total",`<strong>${f.t}</strong>`,"100",f.capped?"capped at 60":""]);
-  let rel="";
-  if(!i.rel.length)rel="None recorded";
-  else{
-    rel=rv.vis.map(r=>`${esc(r.holder)}: ${esc(r.knows)}, confirmed ${r.confirmed}`).join("<br>");
-    if(rv.hidden)rel+=(rel?"<br>":"")+`<span class="muted">${rv.hidden} introduction path(s) restricted to the relationship holder, Admin, and Approver.</span>`;
+  scRows.push(["Total", `<strong>${f.t}</strong>`, "100", f.capped ? "capped at 60" : ""]);
+  let rel = "";
+  if (!i.rel.length) rel = "None recorded";
+  else {
+    rel = rv.vis.map(r => `${esc(r.holder)}: ${esc(r.knows)}, confirmed ${r.confirmed}`).join("<br>");
+    if (rv.hidden) rel += (rel ? "<br>" : "") + `<span class="muted">${rv.hidden} introduction path(s) restricted.</span>`;
   }
-  const src=table(["ID","Source","URL","Accessed","Published"],i.sources.map(s=>[s.id,esc(s.label),esc(s.url),s.accessed,s.published||'<span class="flag">missing (flagged)</span>']));
-  const dms=i.decisionMakers.length?i.decisionMakers.map(d=>`${esc(d.name)}, ${esc(d.title)} (source ${d.src})`).join("<br>"):'<span class="flag">None verified (flagged)</span>';
-  const hist=i.history.slice(0,10).map(h=>`${h.date} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>")||"No changes yet";
-  const form=canE?`
-    <h2>Edit</h2>
+  const src = table(["ID", "Source", "URL", "Accessed", "Published"], i.sources.map(s => [s.id, esc(s.label), esc(s.url), esc(s.accessed), s.published || '<span class="flag">missing (flagged)</span>']));
+  const dms = i.decisionMakers.length ? i.decisionMakers.map(d => `${esc(d.name)}, ${esc(d.title)}`).join("<br>") : '<span class="flag">None verified (flagged)</span>';
+  const hist = i.history.slice(0, 10).map(h => `${h.date} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
+  const pending = i.review === "pending";
+  const confirmBtn = pending && canE ? `<button class="primary" onclick="confirmRecord('${i.id}')">Confirm record</button>` : "";
+  const aiBtn = `<button disabled title="Waiting for the AI key from your instructor">Run AI research (waiting for AI key)</button>`;
+  const form = canE ? `
+    <h2>Edit record</h2>
     <div class="row">
-      <label>Stage <select id="d_stage">${STAGES.map(s=>`<option ${s===i.stage?"selected":""}>${s}</option>`).join("")}</select></label>
+      <label>Name <input id="d_name" value="${esc(i.name)}"></label>
+      <label>Type <select id="d_type">${TYPES.filter(x => x !== "Unclassified").map(x => `<option ${x === i.type ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+      <label>HQ <input id="d_hq" value="${esc(i.hq)}"></label>
+      <label>Check size <input id="d_check" value="${esc(i.check)}"></label>
+    </div>
+    <div style="margin-top:8px"><label>Strategy<br><input id="d_strategy" value="${esc(i.strategy)}" style="width:100%"></label></div>
+    <div style="margin-top:8px"><label>Sources, one per line: label | link | date accessed | date published<br><textarea id="d_sources" rows="3" style="width:100%">${esc(sourcesText(i))}</textarea></label></div>
+    <div style="margin-top:8px"><label>Contacts, one per line: name | title (firm contacts only)<br><textarea id="d_dm" rows="2" style="width:100%">${esc(dmText(i))}</textarea></label></div>
+    <div style="margin-top:8px"><label>Prior deals, one per line<br><textarea id="d_deals" rows="2" style="width:100%">${esc(i.deals.join("\n"))}</textarea></label></div>
+    <div class="row" style="margin-top:8px">
+      <label>Stage <select id="d_stage">${STAGES.map(s => `<option ${s === i.stage ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <label>Owner <input id="d_owner" value="${esc(i.owner)}"></label>
       <label>Next follow-up <input type="date" id="d_next" value="${esc(i.next)}"></label>
-      <label><input type="checkbox" id="d_supp" ${i.suppressed?"checked":""}> Suppressed (removal request)</label>
+      <label><input type="checkbox" id="d_supp" ${i.suppressed ? "checked" : ""}> Suppressed (removal request)</label>
     </div>
     <div style="margin-top:8px"><label>Notes<br><textarea id="d_notes" rows="2" style="width:100%">${esc(i.notes)}</textarea></label></div>
-    <div style="margin-top:8px"><button class="primary" onclick="saveDetail('${i.id}')">Save changes</button> <span class="muted">Scores and stage changes are recorded in the change history.</span></div>`
-  :`<div class="muted" style="margin-top:8px">Stage: ${esc(i.stage)} · Owner: ${esc(i.owner)} · Next follow-up: ${i.next||"none set"} · Notes: ${esc(i.notes)}</div>`;
+    <div class="row" style="margin-top:10px"><button class="primary" onclick="saveDetail('${i.id}')">Save changes</button>${confirmBtn}${aiBtn}</div>`
+    : `<div class="muted" style="margin-top:8px">Read-only.</div>`;
   return `<div class="card">
     <h2>${esc(i.name)}: ${esc(i.type)}</h2>
-    <div class="row"><span class="chip">Fit ${f.t}${f.capped?" (capped)":""}</span><span class="chip">Confidence ${conf(i)}</span><span class="chip">Approval: ${i.approval?esc(i.approval.by)+" on "+i.approval.date:"none"}</span></div>
+    <div class="row"><span class="chip">Fit ${f.t}${f.capped ? " (capped)" : ""}</span><span class="chip">Confidence ${conf(i)}</span><span class="chip">${pending ? "Pending review" : "Confirmed"}</span><span class="chip">Outreach approval: ${i.approval ? esc(i.approval.by) + " on " + i.approval.date : "none"}</span></div>
     <div class="grid" style="margin-top:10px">
       <div><strong>HQ</strong><br>${esc(i.hq)}</div>
-      <div><strong>Strategy</strong><br>${esc(i.strategy)||"none recorded"}</div>
-      <div><strong>Equity check range</strong><br>${esc(i.check)||"none recorded"}</div>
-      <div><strong>Prior transactions</strong><br>${i.deals.map(d=>esc(d)).join("<br>")||"None recorded"}</div>
+      <div><strong>Strategy</strong><br>${esc(i.strategy) || "none recorded"}</div>
+      <div><strong>Equity check range</strong><br>${esc(i.check) || "none recorded"}</div>
+      <div><strong>Prior transactions</strong><br>${i.deals.map(d => esc(d)).join("<br>") || "None recorded"}</div>
     </div>
-    <div><strong>Decision-makers</strong><br>${dms}</div>
-    <div style="margin-top:8px"><strong>Flags</strong><br>${flagChips(i)||"None"}</div>
+    <div><strong>Contacts</strong><br>${dms}</div>
+    <div style="margin-top:8px"><strong>Flags</strong><br>${flagChips(i) || "None"}</div>
     <h2>Scores</h2>
-    ${canE?`<div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`:table(["Criterion","Score (0 to 5)","Weight","Points"],scRows)}
+    <div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     <h2>Sources</h2>
     ${src}
     <h2>Introduction paths</h2>
@@ -577,7 +688,7 @@ function vReq(){
   return `<div class="card"><h2>Requirements check</h2>${table(["Section","How this example shows it","Status"],r)}</div>`;
 }
 
-render();
+boot();
 </script>
 </body>
 </html>
