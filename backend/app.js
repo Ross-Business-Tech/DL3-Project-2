@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { researchEnabled, askModel, sanitizeResult, CRITERIA } from "./research.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_DIR = path.resolve(HERE, "../sites/investor-crm");
@@ -22,12 +23,12 @@ export function newId() {
 }
 
 // Check a request body against the field list. Returns { data } or { error }.
-export function validate(body, { requireName }) {
+export function validate(body, { requireName, server = false }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Body must be a JSON object." };
   const data = {};
   for (const [key, value] of Object.entries(body)) {
     const f = FIELDS[key];
-    if (!f) return { error: `Unknown field: ${key}` };
+    if (!f || (!server && key.startsWith("ai_"))) return { error: `Unknown field: ${key}` };
     if (f.type === "string") {
       if (typeof value !== "string") return { error: `${key} must be text.` };
       const v = f.trim ? value.trim() : value;
@@ -62,6 +63,43 @@ function limiter({ windowMs, max }) {
     else if (++rec.n > max) return res.status(429).json({ error: "Too many requests. Please wait and try again." });
     next();
   };
+}
+
+
+// ---- Automatic research -------------------------------------------------------------------
+const STALE_MS = 6 * 60 * 1000;
+const dailyLimit = () => parseInt(process.env.AI_DAILY_LIMIT, 10) || 40;
+const runsToday = async pool => (await pool.query("select count(*)::int as n from research_runs where started_at > now() - interval '24 hours'")).rows[0].n;
+const SCORE_FIELDS = CRITERIA.map(c => c[1]);
+const TEXT_FIELDS = ["hq", "strategy", "check_size", "website", "linkedin", "contact_email", "sources_text", "deals_text"];
+
+async function setData(pool, id, patch) {
+  const v = validate(patch, { requireName: false, server: true });
+  if (v.error) throw new Error("internal: " + v.error);
+  await pool.query("update investors set data = data || $2::jsonb, updated_at = now() where id = $1", [id, v.data]);
+}
+
+// Runs in the background after the request has been answered. Never overwrites what a person typed.
+export async function runResearchJob(pool, id, name) {
+  try {
+    const { text, urls } = await askModel(name);
+    const { data } = sanitizeResult(text, urls);
+    const { rows } = await pool.query("select data from investors where id = $1", [id]);
+    if (!rows.length) return;
+    const cur = rows[0].data;
+    const patch = { ai_status: "done", ai_updated: data.ai_updated, ai_missing: data.ai_missing };
+    let summary = data.ai_summary;
+    for (const f of TEXT_FIELDS) if (!cur[f] && data[f]) patch[f] = data[f];
+    if (SCORE_FIELDS.some(f => cur[f] > 0)) summary += "\nNote: scores were already set by a person, so the AI scores above were not applied.";
+    else for (const f of SCORE_FIELDS) patch[f] = data[f];
+    if (data.type && data.type !== cur.type) summary += `\nNote: the AI suggests the investor type may be ${data.type}.`;
+    patch.ai_summary = summary.slice(0, 2000);
+    await setData(pool, id, patch);
+  } catch (e) {
+    console.error("research failed:", e.message);
+    const msg = typeof e.status === "number" ? `The AI service returned an error (code ${e.status}).` : /^The AI /.test(e.message) ? e.message : "Research could not be completed.";
+    try { await setData(pool, id, { ai_status: "failed", ai_missing: `Research failed: ${msg} Try again later or fill the details in by hand.` }); } catch (e2) { console.error("could not record failure:", e2.message); }
+  }
 }
 
 const row = r => ({ id: r.id, data: r.data, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString() });
@@ -102,6 +140,26 @@ export function createApp(pool) {
     const last = page[page.length - 1];
     const nextCursor = rows.length > limit ? Buffer.from(`${last.created_text}|${last.id}`).toString("base64url") : null;
     res.json({ records: page.map(row), nextCursor });
+  });
+
+
+  const researchLimit = limiter({ windowMs: 3600_000, max: 10 });
+  app.get("/api/research/status", reads, async (req, res) => {
+    res.json({ enabled: researchEnabled(), remainingToday: Math.max(0, dailyLimit() - await runsToday(pool)) });
+  });
+  app.post("/api/investors/:id/research", researchLimit, async (req, res) => {
+    if (!researchEnabled()) return res.status(503).json({ error: "AI research is not set up yet." });
+    if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+    const { rows } = await pool.query("select data from investors where id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Not found." });
+    const cur = rows[0].data;
+    if (cur.review_status !== "pending") return res.status(409).json({ error: "Only investors waiting for review can be researched. Confirmed records are not changed by the AI." });
+    if (cur.ai_status === "running" && Date.now() - Date.parse(cur.ai_started || 0) < STALE_MS) return res.status(409).json({ error: "Research is already running for this investor." });
+    if (await runsToday(pool) >= dailyLimit()) return res.status(429).json({ error: "The daily research limit has been reached. Try again tomorrow." });
+    await pool.query("insert into research_runs default values");
+    await setData(pool, req.params.id, { ai_status: "running", ai_started: new Date().toISOString() });
+    res.status(202).json({ status: "running" });
+    runResearchJob(pool, req.params.id, String(cur.name || "")).catch(e => console.error("research job crashed:", e.message));
   });
 
   app.get("/api/investors/:id", reads, async (req, res) => {
@@ -145,4 +203,5 @@ export async function migrate(pool) {
     updated_at timestamptz not null default now()
   )`);
   await pool.query("create index if not exists investors_created_idx on investors (created_at, id)");
+  await pool.query("create table if not exists research_runs (id bigserial primary key, started_at timestamptz not null default now())");
 }

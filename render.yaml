@@ -16,6 +16,13 @@ services:
         fromDatabase:
           name: dl3-investor-db
           property: connectionString
+      # Automatic research. Add the key in Render's Environment tab (never in the code).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AI_DAILY_LIMIT # most research runs allowed in 24 hours (each one costs money)
+        value: "40"
+      - key: AI_CHECK_RANGE # DL3's target equity check, e.g. "$2M to $10M"
+        sync: false
 
 databases:
   - name: dl3-investor-db

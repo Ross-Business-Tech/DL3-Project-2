@@ -1,31 +1,150 @@
-{"collections":{"investors":{
- "fields":{
-  "name":{"type":"string","required":true,"maxLength":160,"trim":true},
-  "type":{"type":"string","maxLength":40},
-  "hq":{"type":"string","maxLength":160},
-  "strategy":{"type":"string","maxLength":400},
-  "check_size":{"type":"string","maxLength":120},
-  "s_chicago":{"type":"integer","minimum":0,"maximum":5},
-  "s_mf":{"type":"integer","minimum":0,"maximum":5},
-  "s_check":{"type":"integer","minimum":0,"maximum":5},
-  "s_strategy":{"type":"integer","minimum":0,"maximum":5},
-  "s_evidence":{"type":"integer","minimum":0,"maximum":5},
-  "s_capital":{"type":"integer","minimum":0,"maximum":5},
-  "sources_text":{"type":"string","maxLength":4000},
-  "decision_text":{"type":"string","maxLength":2000},
-  "deals_text":{"type":"string","maxLength":4000},
-  "stage":{"type":"string","maxLength":40},
-  "owner":{"type":"string","maxLength":80},
-  "approval_by":{"type":"string","maxLength":80},
-  "approval_date":{"type":"string","maxLength":20},
-  "next_date":{"type":"string","maxLength":20},
-  "last_date":{"type":"string","maxLength":20},
-  "notes":{"type":"string","maxLength":2000},
-  "suppressed":{"type":"boolean"},
-  "self_reported":{"type":"boolean"},
-  "review_status":{"type":"string","maxLength":20}
- },
- "access":{"read":"public","insert":"public","update":"public","delete":"owner"},
- "publicMutation":"open",
- "rateLimit":"60/hour/ip"
-}}}
+{
+ "collections": {
+  "investors": {
+   "fields": {
+    "name": {
+     "type": "string",
+     "required": true,
+     "maxLength": 160,
+     "trim": true
+    },
+    "type": {
+     "type": "string",
+     "maxLength": 40
+    },
+    "hq": {
+     "type": "string",
+     "maxLength": 160
+    },
+    "strategy": {
+     "type": "string",
+     "maxLength": 400
+    },
+    "check_size": {
+     "type": "string",
+     "maxLength": 120
+    },
+    "s_chicago": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_mf": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_check": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_strategy": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_evidence": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_capital": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "sources_text": {
+     "type": "string",
+     "maxLength": 4000
+    },
+    "decision_text": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "deals_text": {
+     "type": "string",
+     "maxLength": 4000
+    },
+    "stage": {
+     "type": "string",
+     "maxLength": 40
+    },
+    "owner": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "approval_by": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "approval_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "next_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "last_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "notes": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "suppressed": {
+     "type": "boolean"
+    },
+    "self_reported": {
+     "type": "boolean"
+    },
+    "review_status": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "website": {
+     "type": "string",
+     "maxLength": 300
+    },
+    "linkedin": {
+     "type": "string",
+     "maxLength": 300
+    },
+    "contact_email": {
+     "type": "string",
+     "maxLength": 160
+    },
+    "ai_status": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "ai_summary": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "ai_missing": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "ai_updated": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "ai_started": {
+     "type": "string",
+     "maxLength": 40
+    }
+   },
+   "access": {
+    "read": "public",
+    "insert": "public",
+    "update": "public",
+    "delete": "owner"
+   },
+   "publicMutation": "open",
+   "rateLimit": "60/hour/ip"
+  }
+ }
+}
