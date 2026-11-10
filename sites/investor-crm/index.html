@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DL3 Investor CRM - Pilot Example</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f6f6f3;--surface:#ffffff;--text:#1c1c1a;--muted:#66665f;--border:#d9d9d2;--accent:#1f5f8b;--good:#2d6a4f;--warn:#8a5a00;--bad:#9b2226;--chip:#ececE6;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#161615;--surface:#20201e;--text:#ecece7;--muted:#a1a197;--border:#3a3a36;--accent:#8cc0e6;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#2c2c29;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#161615;--surface:#20201e;--text:#ecece7;--muted:#a1a197;--border:#3a3a36;--accent:#8cc0e6;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#2c2c29;color-scheme:dark}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
+header{padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+h1{font-size:16px;margin:0}
+h2{font-size:15px;margin:14px 0 8px}
+nav{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--surface)}
+main{padding:14px 18px;max-width:1200px;margin:0 auto}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.metric .v{font-size:22px;font-weight:600}
+.metric .l{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.wrap{overflow-x:auto}
+.chip{display:inline-block;padding:1px 7px;border-radius:10px;background:var(--chip);font-size:12px;margin:1px 3px 1px 0}
+.flag{color:var(--warn)}
+.bad{color:var(--bad)}
+.good{color:var(--good)}
+.muted{color:var(--muted)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea{font:inherit;padding:5px 7px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);max-width:100%}
+button{font:inherit;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer}
+button.primary,nav button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.notice{padding:8px 10px;border-radius:6px;background:var(--chip);margin:0 0 12px}
+.disclaimer{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>DL3 Investor CRM: pilot example</h1>
+    <div class="disclaimer">All investors come from public research. Individuals are not named. As of 2026-11-03. Data resets when the page reloads.</div>
+  </div>
+  <div class="row">
+    <label>Viewing as
+      <select id="roleSel" onchange="setRole(this.value)">
+        <option>Admin</option>
+        <option>Editor</option>
+        <option>Approver</option>
+        <option>Viewer</option>
+        <option>Relationship Holder A</option>
+        <option>Relationship Holder B</option>
+      </select>
+    </label>
+  </div>
+</header>
+<nav id="nav">
+  <button data-tab="Dashboard" onclick="go('Dashboard')">Dashboard</button>
+  <button data-tab="Prospects" onclick="go('Prospects')">Prospects</button>
+  <button data-tab="Scoring" onclick="go('Scoring')">Scoring</button>
+  <button data-tab="Outreach" onclick="go('Outreach')">Outreach</button>
+  <button data-tab="Activity" onclick="go('Activity')">Activity</button>
+  <button data-tab="Import / Export" onclick="go('Import / Export')">Import / Export</button>
+  <button data-tab="Audit" onclick="go('Audit')">Audit</button>
+  <button data-tab="Admin" onclick="go('Admin')">Admin</button>
+  <button data-tab="Requirements" onclick="go('Requirements')">Requirements check</button>
+</nav>
+<main id="app"></main>
+
+<script>
+/* ---------- Constants ---------- */
+const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30, FIT_THRESHOLD=70;
+const CRIT=[
+  {k:"chicago",label:"Chicago interest"},
+  {k:"mf",label:"Mixed-income / multifamily experience"},
+  {k:"check",label:"Equity check size"},
+  {k:"strategy",label:"Strategy fit"},
+  {k:"evidence",label:"Evidence of relevant deals"},
+  {k:"capital",label:"Capital capacity and investor type"}
+];
+const TYPES=["Family office","Institutional","Qualified purchaser","Unclassified"];
+const STAGES=["identified","researched","scored","reviewed","approved for outreach","contacted","meeting scheduled","in diligence","committed","passed","archived"];
+const PRE_APPROVAL=["identified","researched","scored","reviewed"];
+const CLOSED=["committed","passed","archived"];
+const PERM={
+  edit:["Admin","Editor","Approver","Viewer","Relationship Holder A","Relationship Holder B"],
+  approve:["Approver"],
+  weights:["Admin"],
+  audit:["Admin","Approver"],
+  log:["Admin","Editor","Approver","Viewer","Relationship Holder A","Relationship Holder B"]
+};
+
+/* ---------- State ---------- */
+const S={
+  role:"Admin", tab:"Dashboard", selected:null, msg:"",
+  weights:{chicago:20,mf:20,check:20,strategy:15,evidence:15,capital:10}, wVersion:1,
+  filters:{minFit:0,conf:"",type:"",stage:""},
+  importRows:null, exportText:"",
+  audit:[{date:AS_OF,role:"Admin",action:"Pilot loaded",detail:"25 research investors"}]
+};
+
+/* ---------- Sample data (hypothetical) ---------- */
+const SEED=[
+ {id:"INV-001",name:"Ante, Inc. (Antetokounmpo family office)",type:"Family office",hq:"Not confirmed (Chicago activity)",strategy:"Multifamily acquisitions",check:"Not disclosed; deals about $21M each",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:4,capital:4},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Family office founders (per firm profile)",src:"R1-1"}],deals:["Harmony Apartments, 4513 N Clark St, about $21M (Jan 2026)","Portrait building, 948 W Sunnyside Ave, 59 units, $21M (Apr 2026)"],sources:[{id:"R1-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/01/26/giannis-antetokounmpo-keeps-buying-apartments",accessed:"n/a (research CSV)",published:"2026-01-26"},{id:"R1-2",label:"Research source 2",url:"https://therealdeal.com/chicago/2026/04/01/giannis-antetokounmpo-again-sets-sights-on-uptown-chicago",accessed:"n/a (research CSV)",published:"2026-04-01"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Check size and HQ not confirmed.",acts:[],history:[]},
+ {id:"INV-002",name:"Lagflin SCA (Campari family office)",type:"Family office",hq:"Luxembourg",strategy:"Value-add; office-to-residential with public subsidy",check:"Not disclosed",scores:{chicago:4,mf:3,check:4,strategy:4,evidence:3,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Director, Lagflin SCA",src:"R2-1"}],deals:["Over $100M in Chicago real estate since 2021 across retail, office, multifamily","79 W Monroe office-to-residential (construction start Mar 2025)"],sources:[{id:"R2-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/03/27/campari-starts-construction-on-chicago-office-to-residential",accessed:"n/a (research CSV)",published:"2025-03-27"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one dated source; no second source found.",acts:[],history:[]},
+ {id:"INV-003",name:"Beitel Group (NY family office)",type:"Family office",hq:"New York, NY",strategy:"Value-add multifamily (per firm description)",check:"About $110M shared with Scharf Group",scores:{chicago:3,mf:5,check:3,strategy:4,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Co-bought 720 units in Chicago MSA for $110M with The Scharf Group"],sources:[{id:"R3-1",label:"Research source 1",url:"https://irei.com/news/n-y-based-family-office-buys-720-units-chicago-110m/",accessed:"n/a (research CSV)",published:"2021-03-04"},{id:"R3-2",label:"Research source 2",url:"https://www.citybiz.co/article/21732/beitel-group-and-the-scharf-group-both-ny-based-single-family-offices-have-acquired-720-units-in-chicago-msa-for-a-purchase-price-of-110-million/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Deal is from 2021; check for newer Chicago activity.",acts:[],history:[]},
+ {id:"INV-004",name:"The Scharf Group (NY family office)",type:"Family office",hq:"New York, NY",strategy:"Owner, developer, and operator of multifamily, commercial, and senior housing",check:"About $110M shared with Beitel Group",scores:{chicago:3,mf:5,check:3,strategy:4,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Co-bought 720 units in Chicago MSA for $110M with Beitel Group"],sources:[{id:"R4-1",label:"Research source 1",url:"https://irei.com/news/n-y-based-family-office-buys-720-units-chicago-110m/",accessed:"n/a (research CSV)",published:"2021-03-04"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Same deal as Beitel Group; deal is from 2021.",acts:[],history:[]},
+ {id:"INV-005",name:"Elie Rieder family office (NY)",type:"Family office",hq:"Manhattan and Suffern, NY",strategy:"Chicago MSA targeting; strategy not stated",check:"Not disclosed",scores:{chicago:3,mf:4,check:1,strategy:2,evidence:1,capital:2},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Head of family office",src:"R5-1"},{name:"Contact to confirm",title:"Head of acquisitions",src:"R5-1"}],deals:["Has targeted Chicago MSA for over 1.5 years","bought an off-market deal (details not shown)"],sources:[{id:"R5-1",label:"Research source 1",url:"https://www.bisnow.com/news/chicago/commercial-real-estate/new-york-takes-over-chicago-17790",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Article date, deal size, and unit count not shown.",acts:[],history:[]},
+ {id:"INV-006",name:"The Chicago Family Office",type:"Family office",hq:"Chicago, IL",strategy:"Diversified",check:"Not disclosed",scores:{chicago:4,mf:1,check:1,strategy:2,evidence:0,capital:2},selfReported:false,decisionMakers:[],deals:["Chicago-based","mandates real estate, technology, healthcare, environmental"],sources:[{id:"R6-1",label:"Research source 1",url:"https://www.premieralts.com/investors/the-chicago-family-office/deals",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Deal list undated; multifamily activity not confirmed.",acts:[],history:[]},
+ {id:"INV-007",name:"Berger Realty Group (family office)",type:"Family office",hq:"Chicago, IL",strategy:"Long hold, then sale",check:"About $43M",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Leads Berger Realty Group",src:"R7-1"}],deals:["Sold 247-unit Gold Coast tower for $43M (Jul 2025)"],sources:[{id:"R7-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/07/18/gold-coast-chicago-apartments-sell-for-174000-per-unit",accessed:"n/a (research CSV)",published:"2025-07-18"},{id:"R7-2",label:"Research source 2",url:"https://www.costar.com/article/432097630/247-unit-apartment-tower-in-chicagos-gold-coast-sells-for-43-million",accessed:"n/a (research CSV)",published:"2025-07-16"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Seller, not buyer; where sale proceeds went is unknown.",acts:[],history:[]},
+ {id:"INV-008",name:"Pontegadea Inversiones (Amancio Ortega family office)",type:"Family office",hq:"Spain",strategy:"Multifamily and office",check:"$232M and $550M deals",scores:{chicago:4,mf:3,check:3,strategy:2,evidence:2,capital:5},selfReported:false,decisionMakers:[],deals:["Bought Chicago luxury apartment tower for $232M (Aug 2023)","bought 51-story Chicago office tower for $550M (Oct 2026)"],sources:[{id:"R8-1",label:"Research source 1",url:"https://www.craincurrency.com/node/1009381",accessed:"n/a (research CSV)",published:"2023-08-22"},{id:"R8-2",label:"Research source 2",url:"https://techstory.in/zara-billionaire-amancio-ortega-buys-chicago-office-tower-for-550-mn/",accessed:"n/a (research CSV)",published:"2026-10-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Office focus; multifamily appetite unclear.",acts:[],history:[]},
+ {id:"INV-009",name:"Intercontinental Real Estate with Magellan Development Group",type:"Institutional",hq:"Not confirmed (Chicago activity)",strategy:"Residential acquisition",check:"About $126M (about $380K per unit)",scores:{chicago:4,mf:5,check:3,strategy:4,evidence:4,capital:4},selfReported:false,decisionMakers:[],deals:["Bought 73 E Lake St, 332-unit Loop tower, $126.1M (Jan/Feb 2026)"],sources:[{id:"R9-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/02/10/intercontinental-and-magellan-buy-chicago-loop-apartments",accessed:"n/a (research CSV)",published:"2026-02-10"},{id:"R9-2",label:"Research source 2",url:"https://www.costar.com/article/292648585/sale-of-42-story-apartment-tower-in-downtown-chicago-follows-big-year-of-deals",accessed:"n/a (research CSV)",published:"2026-02-10"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Both sources cover the same deal; contacts not found.",acts:[],history:[]},
+ {id:"INV-010",name:"FPA Multifamily",type:"Institutional",hq:"California (per CoStar)",strategy:"Value-add, suburban and urban",check:"$51M to $89M per deal",scores:{chicago:5,mf:5,check:4,strategy:4,evidence:5,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Title to confirm",src:"R10-1"}],deals:["Streeterville tower, $89M (Dec 2025)","378-unit Wheeling complex, $51M (Feb 2026)"],sources:[{id:"R10-1",label:"Research source 1",url:"https://www.costar.com/article/2055333982/following-largest-chicago-multifamily-purchase-since-2023-california-investor-adds-nearby-tower",accessed:"n/a (research CSV)",published:"2025-12-19"},{id:"R10-2",label:"Research source 2",url:"https://www.costar.com/article/550295300/fpa-multifamily-acquires-chicago-area-apartment-complex-for-51-million",accessed:"n/a (research CSV)",published:"2026-02-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: HQ not Chicago; confirm decision-maker title.",acts:[],history:[]},
+ {id:"INV-011",name:"LaTerra Capital Management and Respark Residential",type:"Institutional",hq:"Marina del Rey, CA",strategy:"Acquire and scale multifamily; leveraged with assumable Fannie Mae debt",check:"About $455M for portfolio",scores:{chicago:5,mf:5,check:4,strategy:4,evidence:5,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"CEO, LaTerra",src:"R11-1"},{name:"Contact to confirm",title:"CIO, Respark",src:"R11-1"}],deals:["Seven-property, 1,495-unit suburban Chicago portfolio from Aimco for $455M"],sources:[{id:"R11-1",label:"Research source 1",url:"https://laterradev.com/wp-content/uploads/2025/12/PRLog-LaTerra-and-Respark-Under-Contract-with-AIMCO-to-Acquire-a-455M-7-Property-Chicago-Multifamily-Portfolio-12.16.2025.pdf",accessed:"n/a (research CSV)",published:"2025-12-16"},{id:"R11-2",label:"Research source 2",url:"https://rejournals.com/berkadia-advises-aimco-on-455-million-chicago-multifamily-portfolio-sale/",accessed:"n/a (research CSV)",published:"2026-03-31"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Closing not confirmed in sources.",acts:[],history:[]},
+ {id:"INV-012",name:"Laramar Group",type:"Institutional",hq:"Chicago (per Bisnow)",strategy:"Residential acquisition",check:"About $166M",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Eleven Thirty, 656 units, 1130 S Michigan Ave, $165.7M","second Chicago high-rise deal"],sources:[{id:"R12-1",label:"Research source 1",url:"https://www.multihousingnews.com/laramar-group-buys-chicago-high-rise-for-166m/",accessed:"n/a (research CSV)",published:null},{id:"R12-2",label:"Research source 2",url:"https://www.bisnow.com/news/chicago/multifamily/laramar-group-acquires-43-story-south-loop-apartment-building",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Exact dates not shown in sources found.",acts:[],history:[]},
+ {id:"INV-013",name:"Concord Capital",type:"Institutional",hq:"Not confirmed",strategy:"Value-add; plans to add units",check:"Not disclosed",scores:{chicago:5,mf:5,check:2,strategy:4,evidence:3,capital:3},selfReported:false,decisionMakers:[],deals:["182 apartments on N Elaine Pl near Wrigley Field (Aug 2026)"],sources:[{id:"R13-1",label:"Research source 1",url:"https://www.costar.com/article/210477456/chicago-firm-buys-apartment-complex-near-wrigley-field",accessed:"n/a (research CSV)",published:"2026-08-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Price not disclosed; only one source.",acts:[],history:[]},
+ {id:"INV-014",name:"Equus Capital Partners",type:"Institutional",hq:"Not confirmed (Chicago suburbs)",strategy:"Value-add; capital improvement program",check:"Not disclosed",scores:{chicago:4,mf:5,check:2,strategy:4,evidence:2,capital:3},selfReported:false,decisionMakers:[],deals:["226-unit Ashford at Geneva, IL (2026)"],sources:[{id:"R14-1",label:"Research source 1",url:"https://www.multihousingnews.com/equus-capital-acquires-chicagoland-multifamily-asset/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Exact date not shown; price not disclosed.",acts:[],history:[]},
+ {id:"INV-015",name:"Eastham Capital (with Bender Cos.)",type:"Institutional",hq:"Not confirmed (Chicago suburbs)",strategy:"Value-add private equity (Fund VII)",check:"About $24M per deal",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:5,capital:4},selfReported:false,decisionMakers:[],deals:["Flats at Gladstone, 168 units, $24.1M (Mar 2026)","Park Towers, Richton Park, 270 units (Apr 2026)"],sources:[{id:"R15-1",label:"Research source 1",url:"https://www.costar.com/article/1299126870/partners-add-to-multifamily-purchasing-streak-in-chicago-suburbs",accessed:"n/a (research CSV)",published:"2026-03-27"},{id:"R15-2",label:"Research source 2",url:"https://www.costar.com/article/997957403/active-investors-in-chicago-area-apartments-gobble-up-another-270-units",accessed:"n/a (research CSV)",published:"2026-04-01"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Bender Cos. is a co-investor; contacts not found.",acts:[],history:[]},
+ {id:"INV-016",name:"Standard Real Estate Investments",type:"Institutional",hq:"Midwest (not confirmed)",strategy:"Value-add suburban multifamily",check:"About $61M",scores:{chicago:4,mf:5,check:2,strategy:4,evidence:1,capital:3},selfReported:false,decisionMakers:[],deals:["Suburban Chicago apartment community, $61M"],sources:[{id:"R16-1",label:"Research source 1",url:"https://www.pulse.bot/real-estate/news/standard-real-estate-investments-acquires-suburban-apartment-community-for-61m-69d90220-1da4-4ade-b49d-778c0626e759/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Source is an aggregator; verify on a primary site.",acts:[],history:[]},
+ {id:"INV-017",name:"R.I.G. Capital",type:"Institutional",hq:"Chicago (per The Real Deal)",strategy:"Not stated",check:"About $167M",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[],deals:["Pavilion Apartments, 1,115 units, O'Hare area, $167M (May 2026)"],sources:[{id:"R17-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/05/13/rig-capital-snags-2026-record-deal-for-ohare-area/",accessed:"n/a (research CSV)",published:"2026-05-13"},{id:"R17-2",label:"Research source 2",url:"https://www.costar.com/article/179215488",accessed:"n/a (research CSV)",published:"2026-05-13"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Both sources cover the same deal; contacts not found.",acts:[],history:[]},
+ {id:"INV-018",name:"Waterton",type:"Institutional",hq:"Chicago (per CoStar)",strategy:"Not stated",check:"About $85M",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[],deals:["Flair Tower, River North, $85M (Mar 2026)"],sources:[{id:"R18-1",label:"Research source 1",url:"https://www.costar.com/article/927035332/waterton-pays-85-million-for-apartment-building-in-chicagos-river-north",accessed:"n/a (research CSV)",published:"2026-03-11"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one source; strategy not stated.",acts:[],history:[]},
+ {id:"INV-019",name:"Cedar Street",type:"Institutional",hq:"Chicago (per CoStar)",strategy:"Long-term multifamily hold",check:"About $66M",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:4,capital:4},selfReported:false,decisionMakers:[],deals:["Avra West Loop, 198 units, $66M (Mar 2026)","partnered with Kayne Anderson on The Millie (2025)"],sources:[{id:"R19-1",label:"Research source 1",url:"https://www.costar.com/article/212329231/in-long-term-bet-chicago-investor-buys-third-multifamily-property-in-city-in-less-than-a-year",accessed:"n/a (research CSV)",published:"2026-03-05"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one source; contacts not found.",acts:[],history:[]},
+ {id:"INV-020",name:"RPM Living",type:"Institutional",hq:"Texas (per CoStar)",strategy:"Acquisition spree (strategy not stated)",check:"About $99M to $125M per deal",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:5,capital:5},selfReported:false,decisionMakers:[],deals:["SoNo East, 324 units, about $125M (Jul 2026)","Everly at Yorktown, 295 units, $99M (Aug 2026)","166 N Aberdeen, 223 units, $99M (Sep 2026)"],sources:[{id:"R20-1",label:"Research source 1",url:"https://www.costar.com/article/273879300/texas-investor-makes-third-recent-chicago-area-multifamily-purchase",accessed:"n/a (research CSV)",published:"2026-07-06"},{id:"R20-2",label:"Research source 2",url:"https://www.costar.com/article/1369758947/texas-firm-buys-fourth-chicago-area-multifamily-property-since-march",accessed:"n/a (research CSV)",published:"2026-08-24"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: HQ not confirmed in detail; contacts not found.",acts:[],history:[]},
+ {id:"INV-021",name:"Highland Partners",type:"Institutional",hq:"Utah (per CoStar)",strategy:"Not stated",check:"About $119M",scores:{chicago:4,mf:5,check:4,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[],deals:["Exhibit on Superior, River North, 298 units, $119M (Jul 2026)"],sources:[{id:"R21-1",label:"Research source 1",url:"https://www.costar.com/article/364713062/utah-investor-shells-out-for-chicago-apartment-tower",accessed:"n/a (research CSV)",published:"2026-07-09"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Paywalled source; limited detail.",acts:[],history:[]},
+ {id:"INV-022",name:"Branch Capital Partners",type:"Institutional",hq:"Not confirmed (Chicago)",strategy:"Not stated",check:"About $41M",scores:{chicago:4,mf:5,check:2,strategy:3,evidence:2,capital:2},selfReported:false,decisionMakers:[],deals:["Trailhead Apartments, 109 units, more than $41M (Aug 2026)","first deal"],sources:[{id:"R22-1",label:"Research source 1",url:"https://www.costar.com/article/775396224/new-firm-buys-109-unit-apartment-building-along-chicagos-606-elevated-trail",accessed:"n/a (research CSV)",published:"2026-08-03"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Paywalled source; first deal, so track record is thin.",acts:[],history:[]},
+ {id:"INV-023",name:"Individual investor A",type:"Qualified purchaser",hq:"Chicago",strategy:"Value-add; 1920s-era building",check:"About $34M",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:2,capital:3},selfReported:false,decisionMakers:[{name:"Individual investor A",title:"Individual (name withheld)",src:"R23-1"}],deals:["422-424 W Melrose St, 169 units, $34M (August 2026)"],sources:[{id:"R23-1",label:"Research source 1",url:"https://www.multihousingnews.com/?p=1005101847",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Confirm month and year; individual, so check entity structure.",acts:[],history:[]},
+ {id:"INV-024",name:"Individual investors B",type:"Qualified purchaser",hq:"Chicago",strategy:"Value-add",check:"About $43M",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Individual investors B",title:"Two individuals (names withheld)",src:"R24-1"}],deals:["Gold Coast building, $43M (Jul 2025), held by Berger Realty Group before sale"],sources:[{id:"R24-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/07/18/gold-coast-chicago-apartments-sell-for-174000-per-unit",accessed:"n/a (research CSV)",published:"2025-07-18"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Two individuals; deal may be held through an entity (not shown).",acts:[],history:[]},
+ {id:"INV-025",name:"Randolph Street Realty Capital",type:"Qualified purchaser",hq:"Chicago (per The Real Deal)",strategy:"Multifamily ownership",check:"About $40M",scores:{chicago:5,mf:5,check:2,strategy:3,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Co-founder",src:"R25-1"},{name:"Contact to confirm",title:"Co-founder",src:"R25-1"}],deals:["Panorama Apartments, Lakeview, 140 units, about $40M (Jan 2025)"],sources:[{id:"R25-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/01/17/blitzlake-partners-sells-development-in-hot-chicago-submarket",accessed:"n/a (research CSV)",published:"2025-01-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Investor type unclear; may belong in Institutional.",acts:[],history:[]}
+];
+let INV=[];
+
+/* ---------- Core logic ---------- */
+function esc(v){return String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function val(id){return document.getElementById(id).value}
+function days(a,b){return (Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/864e5}
+function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9]/g,"")}
+function findDup(name){return INV.find(x=>norm(x.name)===norm(name))}
+function log(action,detail){S.audit.unshift({date:AS_OF,role:S.role,action,detail:detail||""})}
+/* Automatic activity: system events are written to the prospect's activity log.
+   They do not update the last-contact date, so inactivity still reflects real outreach. */
+function autoLog(i,type,summary,next){
+  i.acts.unshift({type,date:AS_OF,person:S.role,summary,next:next||"",auto:true});
+}
+
+function fit(i){
+  let raw=0;
+  CRIT.forEach(c=>raw+=i.scores[c.k]*S.weights[c.k]/5);
+  let t=Math.round(raw), capped=false;
+  if(i.scores.evidence===0&&t>60){t=60;capped=true}
+  return {t,capped};
+}
+function recentCount(i){return i.sources.filter(s=>s.published&&s.published>=CUT).length}
+function conf(i){
+  if(i.selfReported)return "Low";
+  const dated=i.sources.filter(s=>s.published).length;
+  if(recentCount(i)>=2)return "High";
+  if(dated>=1)return "Medium";
+  return "Low";
+}
+function overdue(i){return !!i.next&&i.next<AS_OF&&!CLOSED.includes(i.stage)}
+function inactive(i){return days(AS_OF,i.last)>INACT_DAYS}
+function verifiable(i){return i.scores.evidence>=3&&i.decisionMakers.length>0&&recentCount(i)>=1}
+function flags(i) {
+  const f = [];
+  if (i.review === "pending") f.push("Pending review: confirm before use");
+  if (i.type === "Unclassified") f.push("Investor type not confirmed");
+  if (!i.decisionMakers.length) f.push("Contact missing");
+  if (i.sources.some(s => !s.published)) f.push("Unverified source date");
+  if (conf(i) === "Low") f.push("Needs human review");
+  if (fit(i).capped) f.push("Score capped at 60 (no verified deals)");
+  if (inactive(i)) f.push("No activity in " + INACT_DAYS + "+ days");
+  if (overdue(i)) f.push("Follow-up overdue");
+  if (i.stage === "contacted" && !i.approval) f.push("Approval record missing");
+  if (!i.rel.length) f.push("No introduction path recorded");
+  if (i.suppressed) f.push("Suppressed (removal request)");
+  return f;
+}
+
+function flagChips(i){return flags(i).map(f=>`<span class="chip flag">${esc(f)}</span>`).join("")}
+function shortlist() { return INV.filter(i => !i.suppressed && conf(i) !== "Low" && i.review !== "pending").sort((a, b) => fit(b).t - fit(a).t).slice(0, 10); }
+
+function reviewQueue(){return INV.filter(i=>!i.suppressed&&conf(i)==="Low").sort((a,b)=>fit(b).t-fit(a).t)}
+function filtered(){
+  const f=S.filters;
+  return INV.filter(i=>fit(i).t>=(+f.minFit||0)&&(!f.conf||conf(i)===f.conf)&&(!f.type||i.type===f.type)&&(!f.stage||i.stage===f.stage))
+            .sort((a,b)=>fit(b).t-fit(a).t);
+}
+
+/* ---------- Permissions ---------- */
+function can(a){return PERM[a].includes(S.role)}
+function isRH(){return S.role.startsWith("Relationship Holder")}
+function canLogFor(i){return can("log")||(isRH()&&i.rel.some(r=>r.holder===S.role))}
+function seeRel(r){return ["Admin","Approver"].includes(S.role)||r.holder===S.role}
+function relView(i){const vis=i.rel.filter(seeRel);return{vis,hidden:i.rel.length-vis.length}}
+
+/* ---------- Actions ---------- */
+function go(t){S.tab=t;S.msg="";render()}
+function setRole(r){S.role=r;S.msg="";document.getElementById("roleSel").value=r;render()}
+function setF(k,v){S.filters[k]=v;render()}
+function selectInv(id){
+  S.selected=id;
+  const i=INV.find(x=>x.id===id);
+  if(i&&relView(i).vis.length)log("Viewed introduction path",i.name);
+  render();
+}
+async function saveDetail(id) {
+  if (!can("edit")) return;
+  const i = INV.find(x => x.id === id);
+  const stage = val("d_stage");
+  if (stage !== i.stage && stage === "contacted" && !i.approval) {
+    S.msg = "Cannot mark " + i.name + " as contacted: no approval record. An Approver must approve outreach first."; render(); return;
+  }
+  const before = JSON.stringify(toRec(i));
+  const oldName = i.name;
+  i.name = val("d_name").trim() || i.name;
+  i.type = val("d_type"); i.hq = val("d_hq").trim(); i.check = val("d_check").trim(); i.strategy = val("d_strategy").trim();
+  i.sources = parseSources(val("d_sources")); i.decisionMakers = parseDM(val("d_dm")); i.deals = lines(val("d_deals"));
+  i.stage = stage; i.owner = val("d_owner").trim(); i.next = val("d_next"); i.notes = val("d_notes");
+  i.suppressed = document.getElementById("d_supp").checked;
+  CRIT.forEach(c => i.scores[c.k] = +val("sc_" + c.k));
+  if (JSON.stringify(toRec(i)) === before) { S.msg = "No changes to save."; render(); return; }
+  log("Updated " + i.name, "record edited by " + S.role);
+  i.history.unshift({ date: AS_OF, role: S.role, field: "record", from: oldName, to: i.name });
+  S.msg = await saveRemote(i, "Saved changes to " + i.name + ".");
+  render();
+}
+
+async function approve(id) {
+  if (!can("approve")) return;
+  const i = INV.find(x => x.id === id);
+  i.approval = { by: "Approver", date: AS_OF };
+  if (PRE_APPROVAL.includes(i.stage)) {
+    i.history.unshift({ date: AS_OF, role: S.role, field: "stage", from: i.stage, to: "approved for outreach" });
+    i.stage = "approved for outreach";
+  }
+  log("Approved outreach: " + i.name, "Approval record created");
+  autoLog(i, "Approval", "Outreach approved; approval record created", "Begin outreach");
+  S.msg = await saveRemote(i, "Outreach approved for " + i.name + ".");
+  render();
+}
+
+function newInv(name,type,hq,origin){
+  return{id:"INV-"+String(INV.length+1).padStart(3,"0"),name,type,hq,strategy:"",check:"",
+    scores:{chicago:0,mf:0,check:0,strategy:0,evidence:0,capital:0},selfReported:false,
+    decisionMakers:[],deals:[],sources:[],stage:"identified",owner:"Unassigned",approval:null,
+    next:"",last:AS_OF,suppressed:false,rel:[],notes:"Origin: "+origin,acts:[],history:[]};
+}
+async function addProspect() {
+  if (!can("edit")) return;
+  const name = val("np_name").trim(), type = val("np_type"), hq = val("np_hq").trim();
+  if (!name) { S.msg = "Name is required."; render(); return; }
+  const dup = findDup(name);
+  if (dup) { S.msg = "Possible duplicate of " + dup.name + ". Not added."; render(); return; }
+  const i = newInv(name, type, hq, "Manual entry");
+  i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
+  INV.push(i);
+  autoLog(i, "Created", "Added by " + S.role + "; waiting for review", "Check details and confirm");
+  log("Added prospect: " + name, "Manual entry");
+  S.msg = await saveRemote(i, "Added " + name + " to the review queue. Check it, then press Confirm record.");
+  render();
+}
+
+function addActivity(){
+  const i=INV.find(x=>x.id===val("a_inv"));
+  if(!i||!canLogFor(i)){S.msg="Your role cannot log activity for this prospect.";render();return}
+  const a={type:val("a_type"),date:val("a_date")||AS_OF,person:val("a_person").trim(),summary:val("a_sum").trim(),next:val("a_next").trim()};
+  if(!a.summary){S.msg="Summary is required.";render();return}
+  i.acts.unshift(a);
+  if(a.date>i.last)i.last=a.date;
+  log("Logged "+a.type+" for "+i.name,a.summary);
+  S.msg="Activity logged for "+i.name+".";
+  render();
+}
+function saveWeights(){
+  if(!can("weights"))return;
+  const w={};CRIT.forEach(c=>w[c.k]=+val("w_"+c.k));
+  const tot=Object.values(w).reduce((a,b)=>a+b,0);
+  if(tot!==100){S.msg="Weights must total 100 (currently "+tot+").";render();return}
+  S.weights=w;S.wVersion++;
+  log("Scoring weights changed","Now version "+S.wVersion);
+  S.msg="Saved scoring version "+S.wVersion+".";
+  render();
+}
+function parseCsv(t){
+  return t.trim().split(/\r?\n/).slice(1).filter(Boolean).map(l=>{
+    const [n="",ty="",h=""]=l.split(",").map(x=>x.trim());
+    return {name:n,type:ty,hq:h};
+  });
+}
+function previewImport(){
+  const seen=new Set();
+  S.importRows=parseCsv(val("csvIn")).map(r=>{
+    const d=findDup(r.name), inFile=seen.has(norm(r.name));
+    seen.add(norm(r.name));
+    let status;
+    if(!r.name)status="Invalid: no name";
+    else if(d)status="Duplicate of "+d.name+": skipped";
+    else if(inFile)status="Duplicate within file: skipped";
+    else status="New: will add with pending scores and sources";
+    return {...r,status,ok:!!r.name&&!d&&!inFile};
+  });
+  S.msg="Preview ready. Nothing has been saved yet.";
+  render();
+}
+async function commitImport() {
+  if (!can("edit") || !S.importRows) return;
+  let n = 0, failed = 0;
+  for (const r of S.importRows.filter(r => r.ok)) {
+    if (findDup(r.name)) continue;
+    const i = newInv(r.name, r.type || "Unclassified", r.hq, "Conference import");
+    i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
+    INV.push(i);
+    try { await persist(i); n++; } catch (e) { failed++; }
+  }
+  log("Imported " + n + " prospect(s)", "CSV import");
+  S.importRows = null;
+  S.msg = "Imported " + n + " new prospect(s) to the review queue." + (failed ? " " + failed + " could not be saved to the shared list." : "");
+  render();
+}
+
+function buildCsv(){
+  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const head=["name","type","hq","stage","owner","fit","confidence","approval","next_follow_up","introduction_paths","flags"];
+  const showRel=["Admin","Approver"].includes(S.role);
+  const lines=INV.map(i=>[i.name,i.type,i.hq,i.stage,i.owner,fit(i).t,conf(i),
+    i.approval?i.approval.by+" "+i.approval.date:"none",i.next,
+    showRel?i.rel.map(r=>r.holder).join("; ")||"none":"restricted",
+    flags(i).join("; ")].map(q).join(","));
+  return [head.join(","),...lines].join("\n");
+}
+function generateExport(){S.exportText=buildCsv();S.msg="CSV generated. Select all in the box and copy it to save.";render()}
+
+/* ---------- Shared list (here.now Site Data) ---------- */
+const COL = window.INVESTORS_API || "./.herenow/data/investors";
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.status === 204 ? null : r.json();
+}
+function lines(text) { return String(text || "").split("\n").map(s => s.trim()).filter(Boolean); }
+function parseSources(text) {
+  return lines(text).map((l, k) => { const p = l.split("|").map(x => x.trim()); return { id: "S" + (k + 1), label: p[0] || "Source", url: p[1] || "", accessed: p[2] || "", published: p[3] || null }; });
+}
+function parseDM(text) {
+  return lines(text).map(l => { const p = l.split("|").map(x => x.trim()); return { name: p[0] || "Unnamed", title: p[1] || "", src: "" }; });
+}
+function sourcesText(i) { return i.sources.map(s => [s.label, s.url, s.accessed, s.published || ""].join(" | ")).join("\n"); }
+function dmText(i) { return i.decisionMakers.map(d => [d.name, d.title].join(" | ")).join("\n"); }
+function toRec(i) {
+  const sc = i.scores || {};
+  return {
+    name: i.name || "", type: i.type || "", hq: i.hq || "", strategy: i.strategy || "", check_size: i.check || "",
+    s_chicago: sc.chicago | 0, s_mf: sc.mf | 0, s_check: sc.check | 0, s_strategy: sc.strategy | 0, s_evidence: sc.evidence | 0, s_capital: sc.capital | 0,
+    sources_text: sourcesText(i), decision_text: dmText(i), deals_text: (i.deals || []).join("\n"),
+    stage: i.stage || "", owner: i.owner || "", approval_by: i.approval ? i.approval.by : "", approval_date: i.approval ? i.approval.date : "",
+    next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
+    review_status: i.review || "approved"
+  };
+}
+function fromRec(r, k) {
+  const d = r.data || {};
+  return {
+    id: "INV-" + String(k + 1).padStart(3, "0"), rid: r.id, name: d.name || "", type: d.type || "Unclassified", hq: d.hq || "",
+    strategy: d.strategy || "", check: d.check_size || "",
+    scores: { chicago: d.s_chicago | 0, mf: d.s_mf | 0, check: d.s_check | 0, strategy: d.s_strategy | 0, evidence: d.s_evidence | 0, capital: d.s_capital | 0 },
+    selfReported: !!d.self_reported, sources: parseSources(d.sources_text), decisionMakers: parseDM(d.decision_text), deals: lines(d.deals_text),
+    stage: d.stage || "identified", owner: d.owner || "Unassigned", approval: d.approval_by ? { by: d.approval_by, date: d.approval_date } : null,
+    next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: [], notes: d.notes || "", acts: [], history: [],
+    review: d.review_status || "approved"
+  };
+}
+async function loadInv() {
+  const all = []; let cursor = "";
+  do {
+    const r = await api("GET", COL + "?limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
+    all.push(...(r.records || [])); cursor = r.nextCursor || "";
+  } while (cursor);
+  INV = all.map((r, k) => fromRec(r, k));
+}
+async function persist(i) {
+  if (i.rid) return api("PATCH", COL + "/" + i.rid, toRec(i));
+  const r = await api("POST", COL, toRec(i)); i.rid = r.record.id; return r;
+}
+async function saveRemote(i, okText) {
+  try { await persist(i); return okText; }
+  catch (e) { return "Could not save to the shared list (" + e.message + "). The change is on screen only. Check that you are signed in as a workspace member, then try again."; }
+}
+async function seedShared() {
+  if (!can("edit")) return;
+  let n = 0;
+  S.loading = true; render();
+  try {
+    for (const s of SEED) { const c = JSON.parse(JSON.stringify(s)); c.review = "approved"; await persist(c); n++; }
+    S.msg = "Loaded " + n + " research investors into the shared list.";
+  } catch (e) {
+    S.msg = "Stopped after " + n + " of " + SEED.length + " (" + e.message + "). Ask your instructor to check the list before reloading.";
+  }
+  try { await loadInv(); S.loadError = ""; } catch (e) { S.loadError = "Could not reload the shared list (" + e.message + ")."; }
+  S.loading = false; render();
+}
+async function confirmRecord(id) {
+  if (!can("edit")) return;
+  const i = INV.find(x => x.id === id);
+  i.review = "approved";
+  log("Confirmed record: " + i.name, "Moved out of review");
+  S.msg = await saveRemote(i, i.name + " is confirmed and now counts in the ranking.");
+  render();
+}
+async function boot() {
+  S.loading = true; render();
+  try { await loadInv(); S.loadError = ""; }
+  catch (e) { S.loadError = "Could not reach the shared list. Sign in to here.now as a workspace member, then reload. (" + e.message + ")"; }
+  S.loading = false; render();
+}
+
+/* ---------- Views ---------- */
+function render() {
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
+  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Outreach": vOutreach, "Activity": vActivity, "Import / Export": vIO, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
+  let top = "";
+  if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
+  else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;
+  else if (INV.length === 0) top = `<div class="card"><p>The shared list is empty. Load the 25 research investors once:</p><button class="primary" onclick="seedShared()" ${can("edit") ? "" : "disabled"}>Load research investors</button></div>`;
+  const notice = S.msg ? `<div class="notice">${esc(S.msg)}</div>` : "";
+  document.getElementById("app").innerHTML = top + notice + (S.loading ? "" : views[S.tab]());
+}
+
+function table(h,rows){
+  const body=rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("");
+  return `<div class="wrap"><table><thead><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr></thead><tbody>${body||`<tr><td colspan="${h.length}" class="muted">None</td></tr>`}</tbody></table></div>`;
+}
+function metric(v,l){return `<div class="card metric"><div class="v">${v}</div><div class="l">${l}</div></div>`}
+function nameLink(i){return `<a href="#" onclick="go('Prospects');selectInv('${i.id}');return false">${esc(i.name)}</a>`}
+
+function vDash(){
+  const n=INV.length||1;
+  const meets=INV.filter(i=>fit(i).t>=FIT_THRESHOLD).length;
+  const ver=INV.filter(verifiable).length;
+  const sl=shortlist(), rq=reviewQueue(), od=INV.filter(overdue), ina=INV.filter(inactive);
+  const stages=STAGES.map(s=>`<span class="chip">${s}: ${INV.filter(i=>i.stage===s).length}</span>`).join(" ");
+  return `
+  <div class="grid">
+    ${metric(INV.length,"Prospects in pilot")}
+    ${metric(Math.round(meets/n*100)+"%","Meet approved criteria (fit "+FIT_THRESHOLD+"+, threshold to confirm)")}
+    ${metric(Math.round(ver/n*100)+"%","Verifiable history and current contacts")}
+    ${metric(sl.length,"Shortlist (top 10, excludes low confidence)")}
+    ${metric(rq.length,"Awaiting human review")}
+    ${metric(od.length,"Overdue follow-ups")}
+    ${metric("Not measured","Time saved per qualified prospect (needs baseline)")}
+  </div>
+  <h2>Top-10 shortlist</h2>
+  <div class="card">${table(["Rank","Prospect","Fit","Confidence","Stage","Flags"],sl.map((i,k)=>[k+1,nameLink(i),fit(i).t,conf(i),esc(i.stage),flagChips(i)]))}</div>
+  <h2>Review queue (low confidence, not on shortlist)</h2>
+  <div class="card">${table(["Prospect","Fit","Reason","Flags"],rq.map(i=>[nameLink(i),fit(i).t,"Low confidence: self-reported or undated sources",flagChips(i)]))}</div>
+  <h2>Follow-up and activity alerts</h2>
+  <div class="card">${table(["Prospect","Alert","Date"],[
+    ...od.map(i=>[nameLink(i),"Follow-up overdue",i.next]),
+    ...ina.map(i=>[nameLink(i),"No activity in "+INACT_DAYS+"+ days (threshold to confirm)",i.last])
+  ])}</div>
+  <h2>Pipeline summary</h2>
+  <div class="card">${stages}</div>`;
+}
+
+function vProspects(){
+  const f=S.filters;
+  const sel=(id,opts,cur,label)=>`<select onchange="setF('${id}',this.value)"><option value="">${label}</option>${opts.map(o=>`<option ${o===cur?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+  const bar=`<div class="card row"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf",["High","Medium","Low"],f.conf,"All confidence")}${sel("type",TYPES,f.type,"All types")}${sel("stage",STAGES,f.stage,"All stages")}</div>`;
+  const rows=filtered().map(i=>`<tr style="cursor:pointer" onclick="selectInv('${i.id}')"><td>${esc(i.name)}</td><td>${esc(i.type)}</td><td>${fit(i).t}</td><td>${conf(i)}</td><td>${esc(i.stage)}</td><td>${esc(i.owner)}</td><td>${i.next||"none set"}</td><td>${flagChips(i)}</td></tr>`).join("");
+  const t=`<div class="card wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Fit</th><th>Confidence</th><th>Stage</th><th>Owner</th><th>Next follow-up</th><th>Flags</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="muted">No prospects match these filters</td></tr>'}</tbody></table></div>`;
+  const add=can("edit")?`<div class="card"><h2>Add prospect manually</h2><div class="row"><input id="np_name" placeholder="Name"><select id="np_type">${TYPES.filter(x=>x!=="Unclassified").map(x=>`<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="HQ"><button class="primary" onclick="addProspect()">Add</button></div><div class="muted" style="margin-top:6px">Duplicate names are blocked.</div></div>`:"";
+  return bar+t+add+(S.selected?detail(INV.find(x=>x.id===S.selected)):"");
+}
+
+function detail(i) {
+  const f = fit(i), canE = can("edit"), rv = relView(i), W = S.weights;
+  const scRows = CRIT.map(c => {
+    const pts = (i.scores[c.k] * W[c.k] / 5).toFixed(1);
+    const cell = canE ? `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === i.scores[c.k] ? "selected" : ""}>${n}</option>`).join("")}</select>` : i.scores[c.k];
+    return [c.label, cell, W[c.k], pts];
+  });
+  scRows.push(["Total", `<strong>${f.t}</strong>`, "100", f.capped ? "capped at 60" : ""]);
+  let rel = "";
+  if (!i.rel.length) rel = "None recorded";
+  else {
+    rel = rv.vis.map(r => `${esc(r.holder)}: ${esc(r.knows)}, confirmed ${r.confirmed}`).join("<br>");
+    if (rv.hidden) rel += (rel ? "<br>" : "") + `<span class="muted">${rv.hidden} introduction path(s) restricted.</span>`;
+  }
+  const src = table(["ID", "Source", "URL", "Accessed", "Published"], i.sources.map(s => [s.id, esc(s.label), esc(s.url), esc(s.accessed), s.published || '<span class="flag">missing (flagged)</span>']));
+  const dms = i.decisionMakers.length ? i.decisionMakers.map(d => `${esc(d.name)}, ${esc(d.title)}`).join("<br>") : '<span class="flag">None verified (flagged)</span>';
+  const hist = i.history.slice(0, 10).map(h => `${h.date} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
+  const pending = i.review === "pending";
+  const confirmBtn = pending && canE ? `<button class="primary" onclick="confirmRecord('${i.id}')">Confirm record</button>` : "";
+  const aiBtn = `<button disabled title="Waiting for the AI key from your instructor">Run AI research (waiting for AI key)</button>`;
+  const form = canE ? `
+    <h2>Edit record</h2>
+    <div class="row">
+      <label>Name <input id="d_name" value="${esc(i.name)}"></label>
+      <label>Type <select id="d_type">${TYPES.filter(x => x !== "Unclassified").map(x => `<option ${x === i.type ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+      <label>HQ <input id="d_hq" value="${esc(i.hq)}"></label>
+      <label>Check size <input id="d_check" value="${esc(i.check)}"></label>
+    </div>
+    <div style="margin-top:8px"><label>Strategy<br><input id="d_strategy" value="${esc(i.strategy)}" style="width:100%"></label></div>
+    <div style="margin-top:8px"><label>Sources, one per line: label | link | date accessed | date published<br><textarea id="d_sources" rows="3" style="width:100%">${esc(sourcesText(i))}</textarea></label></div>
+    <div style="margin-top:8px"><label>Contacts, one per line: name | title (firm contacts only)<br><textarea id="d_dm" rows="2" style="width:100%">${esc(dmText(i))}</textarea></label></div>
+    <div style="margin-top:8px"><label>Prior deals, one per line<br><textarea id="d_deals" rows="2" style="width:100%">${esc(i.deals.join("\n"))}</textarea></label></div>
+    <div class="row" style="margin-top:8px">
+      <label>Stage <select id="d_stage">${STAGES.map(s => `<option ${s === i.stage ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+      <label>Owner <input id="d_owner" value="${esc(i.owner)}"></label>
+      <label>Next follow-up <input type="date" id="d_next" value="${esc(i.next)}"></label>
+      <label><input type="checkbox" id="d_supp" ${i.suppressed ? "checked" : ""}> Suppressed (removal request)</label>
+    </div>
+    <div style="margin-top:8px"><label>Notes<br><textarea id="d_notes" rows="2" style="width:100%">${esc(i.notes)}</textarea></label></div>
+    <div class="row" style="margin-top:10px"><button class="primary" onclick="saveDetail('${i.id}')">Save changes</button>${confirmBtn}${aiBtn}</div>`
+    : `<div class="muted" style="margin-top:8px">Read-only.</div>`;
+  return `<div class="card">
+    <h2>${esc(i.name)}: ${esc(i.type)}</h2>
+    <div class="row"><span class="chip">Fit ${f.t}${f.capped ? " (capped)" : ""}</span><span class="chip">Confidence ${conf(i)}</span><span class="chip">${pending ? "Pending review" : "Confirmed"}</span><span class="chip">Outreach approval: ${i.approval ? esc(i.approval.by) + " on " + i.approval.date : "none"}</span></div>
+    <div class="grid" style="margin-top:10px">
+      <div><strong>HQ</strong><br>${esc(i.hq)}</div>
+      <div><strong>Strategy</strong><br>${esc(i.strategy) || "none recorded"}</div>
+      <div><strong>Equity check range</strong><br>${esc(i.check) || "none recorded"}</div>
+      <div><strong>Prior transactions</strong><br>${i.deals.map(d => esc(d)).join("<br>") || "None recorded"}</div>
+    </div>
+    <div><strong>Contacts</strong><br>${dms}</div>
+    <div style="margin-top:8px"><strong>Flags</strong><br>${flagChips(i) || "None"}</div>
+    <h2>Scores</h2>
+    <div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <h2>Sources</h2>
+    ${src}
+    <h2>Introduction paths</h2>
+    <div class="card" style="margin:0">${rel}</div>
+    ${form}
+    <h2>Change history (latest 10)</h2>
+    <div class="card" style="margin:0">${hist}</div>
+    <div class="row" style="margin-top:10px"><button onclick="S.selected=null;render()">Close</button></div>
+  </div>`;
+}
+
+function vScoring(){
+  const rows=INV.map(i=>{const f=fit(i);return [esc(i.name),...CRIT.map(c=>i.scores[c.k]),f.t,f.capped?"Yes (cap 60)":"No",conf(i)]});
+  return `
+  <div class="card">
+    <h2>Fit scores (weights version ${S.wVersion})</h2>
+    ${table(["Prospect",...CRIT.map(c=>`${c.label} (${S.weights[c.k]})`),"Fit","Capped","Confidence"],rows)}
+  </div>
+  <div class="card">
+    <h2>How fit is calculated</h2>
+    <ul>
+      <li>Each criterion is scored 0 to 5. Points equal score times weight, divided by 5. Points total up to 100.</li>
+      <li>Anchors: 5 means strong, verified evidence. 3 means partial or indirect evidence. 1 means weak or inferred evidence. 0 means no evidence or conflicting evidence.</li>
+      <li>Cap: if evidence of relevant deals scores 0, the fit score is capped at 60 until verified deals are added.</li>
+      <li>Ranking: sorted by fit. Prospects with low confidence are sent to the review queue and do not enter the top-10 shortlist until a person reviews them.</li>
+    </ul>
+    <h2>Confidence (separate from fit)</h2>
+    <ul>
+      <li>High: two or more dated sources from the past 24 months.</li>
+      <li>Medium: at least one dated source, but fewer than two recent sources.</li>
+      <li>Low: self-reported only, or no dated sources.</li>
+    </ul>
+    <h2>Gating rules</h2>
+    <ul>
+      <li>Ineligible investor types are excluded from the pilot with the reason recorded. All sample and research examples are eligible for review.</li>
+      <li>No verifiable decision-maker: the prospect is kept and flagged "Contact missing".</li>
+      <li>Introduction paths are recorded for outreach planning and are not part of the fit score.</li>
+    </ul>
+  </div>`;
+}
+
+function vOutreach(){
+  const board=STAGES.map(s=>`<div class="card" style="margin:0"><strong>${s}</strong><div style="margin-top:6px">${INV.filter(i=>i.stage===s).map(i=>`<span class="chip">${esc(i.name)}</span>`).join("")||'<span class="muted">none</span>'}</div></div>`).join("");
+  const pend=INV.filter(i=>!i.approval);
+  const rows=pend.map(i=>[esc(i.name),fit(i).t,conf(i),esc(i.stage),can("approve")?`<button class="primary" onclick="approve('${i.id}')">Approve outreach</button>`:'<span class="muted">Awaiting Approver</span>']);
+  return `
+  <h2>Pipeline stages</h2>
+  <div class="grid">${board}</div>
+  <div class="card">
+    <h2>Outreach approvals</h2>
+    ${table(["Prospect","Fit","Confidence","Stage","Action"],rows)}
+    <div class="muted" style="margin-top:8px">This tool records outreach. It does not send messages. A prospect cannot be marked contacted until an approval record exists.</div>
+  </div>`;
+}
+
+function vActivity(){
+  const rows=INV.flatMap(i=>i.acts.map(a=>({i,a}))).sort((x,y)=>y.a.date.localeCompare(x.a.date));
+  const opts=INV.map(i=>`<option value="${i.id}">${esc(i.name)}</option>`).join("");
+  const form=(can("log")||isRH())?`
+  <div class="card">
+    <h2>Manual log (calls, meetings, emails)</h2>
+    <div class="row">
+      <select id="a_inv">${opts}</select>
+      <select id="a_type">${["Call","Email","Meeting","Introduction","Event","Research"].map(x=>`<option>${x}</option>`).join("")}</select>
+      <input type="date" id="a_date" value="${AS_OF}">
+      <input id="a_person" placeholder="Person">
+      <input id="a_sum" placeholder="Summary" size="28">
+      <input id="a_next" placeholder="Next step">
+      <button class="primary" onclick="addActivity()">Log</button>
+    </div>
+    <div class="muted" style="margin-top:6px">Relationship holders can log activity only for prospects where they hold an introduction path.</div>
+  </div>`:`<div class="card muted">Your role cannot log activity.</div>`;
+  return `<div class="card"><h2>Activity log</h2><div class="muted" style="margin-bottom:6px">Entries marked auto are written by the system from record changes. Manual entries are calls, meetings, and emails.</div>${table(["Date","Prospect","Type","Person","Summary","Next step"],rows.map(({i,a})=>[a.date,esc(i.name),esc(a.type)+(a.auto?' <span class="chip">auto</span>':""),esc(a.person),esc(a.summary),esc(a.next)]))}</div>${form}`;
+}
+
+function vIO(){
+  const sample="name,type,hq\nInvestor 2,Institutional,Milwaukee WI\nSample Conference Firm,Family office,Chicago IL";
+  const preview=S.importRows?`
+    <h2>Import preview</h2>
+    ${table(["Name","Type","HQ","Status"],S.importRows.map(r=>[esc(r.name),esc(r.type),esc(r.hq),esc(r.status)]))}
+    <div class="row" style="margin-top:8px"><button class="primary" onclick="commitImport()" ${can("edit")?"":"disabled"}>Commit new rows</button>${can("edit")?"":'<span class="muted">Admin or Editor only</span>'}</div>`:"";
+  return `
+  <div class="card">
+    <h2>Import conference or database list (CSV)</h2>
+    <textarea id="csvIn" rows="5" style="width:100%">${esc(S.csvDraft||sample)}</textarea>
+    <div class="row" style="margin-top:8px">
+      <button onclick="previewImport()">Preview</button>
+      <span class="muted">Each row is matched against existing records before saving.</span>
+    </div>
+    ${preview}
+  </div>
+  <div class="card">
+    <h2>Export</h2>
+    <div class="row"><button onclick="generateExport()">Generate CSV</button><span class="muted">Full export: scores, sources, flags, approvals. Introduction paths are included only for Admin and Approver.</span></div>
+    ${S.exportText?`<textarea readonly rows="8" style="width:100%;margin-top:8px;font-family:ui-monospace,monospace">${esc(S.exportText)}</textarea>`:""}
+  </div>`;
+}
+
+function vAudit(){
+  if(!can("audit"))return `<div class="card muted">The audit log is visible to Admin and Approver roles only.</div>`;
+  return `<div class="card"><h2>Audit log</h2>${table(["Date","Role","Action","Detail"],S.audit.map(a=>[a.date,esc(a.role),esc(a.action),esc(a.detail)]))}</div>`;
+}
+
+function vAdmin(){
+  const perms=[
+    ["View core records","All roles"],
+    ["Add or edit records, scores, and stages","Admin, Editor"],
+    ["Approve outreach","Approver"],
+    ["Log activity","Admin, Editor, Relationship Holder (own prospects only)"],
+    ["See introduction paths","Admin and Approver see all; Relationship Holder sees own"],
+    ["View audit log","Admin, Approver"],
+    ["Change scoring weights","Admin"],
+    ["Export records","All roles; introduction paths only for Admin and Approver"]
+  ];
+  const w=CRIT.map(c=>`<tr><td>${c.label}</td><td><input type="number" min="0" max="100" id="w_${c.k}" value="${S.weights[c.k]}" style="width:70px" ${can("weights")?"":"disabled"}></td></tr>`).join("");
+  const total=Object.values(S.weights).reduce((a,b)=>a+b,0);
+  const confirm=[
+    "Current CRM, database, and contact-record access",
+    "Equity check range and eligible investor types",
+    "Who holds the Administrator and Approver roles",
+    "Who can see relationship data",
+    "Outreach cadence and inactivity threshold (30 days is a placeholder)",
+    "Meets-criteria threshold (70 is a placeholder)",
+    "Data retention and removal policy",
+    "Pilot acceptance targets"
+  ];
+  return `
+  <div class="card">
+    <h2>Roles and permissions</h2>
+    ${table(["Permission","Roles"],perms)}
+    <div class="muted" style="margin-top:8px">Permissions are enforced in this page only. They are a demonstration, not a security boundary for a shared file.</div>
+  </div>
+  <div class="card">
+    <h2>Scoring weights (version ${S.wVersion})</h2>
+    <div class="wrap"><table><tbody>${w}</tbody></table></div>
+    <div class="row" style="margin-top:8px"><span class="muted">Total: ${total} (must be 100)</span>${can("weights")?'<button class="primary" onclick="saveWeights()">Save as new version</button>':'<span class="muted">Admin only</span>'}</div>
+  </div>
+  <div class="card">
+    <h2>Items to confirm with DL3</h2>
+    <ul>${confirm.map(c=>`<li>${esc(c)}</li>`).join("")}</ul>
+  </div>`;
+}
+
+function vReq(){
+  const r=[
+    ["1. Purpose and scope","Pilot of research prospects with the full workflow","Demonstrated"],
+    ["2. Users and roles","Role switch enforces Admin, Editor, Approver, Viewer, and Relationship Holder permissions","Demonstrated"],
+    ["3. Core data","Type, HQ, decision-makers, strategy, check range, deals, scores, sources, owner, approval, follow-up, notes","Demonstrated"],
+    ["4. Data quality and provenance","Dated sources, derived confidence, unverified-date flags, duplicate blocking, change history","Demonstrated"],
+    ["5. Scoring and ranking","Weighted criteria with anchors, deal cap, sort and filter, review gate before shortlist, versioned weights","Demonstrated"],
+    ["6. Relationship mapping","Introduction paths shown by role, others restricted, confirmation dates; sample relationship data is fictional","Demonstrated"],
+    ["7. Outreach workflow","11 stages, approval required before contacted, stage history; the tool does not send messages","Demonstrated"],
+    ["8. Activity logging","Date, type, person, summary, and next step; role-limited logging","Demonstrated"],
+    ["9. Follow-up and reminders","Next follow-up, overdue alerts, inactivity flag","Demonstrated; 30-day threshold is a placeholder"],
+    ["10. Import and export","CSV import with preview and duplicate matching; full CSV export","Partial: export appears as text to copy because this page cannot save files"],
+    ["11. Privacy, security, compliance","Role-limited views, suppression flag, audit log of edits and relationship views","Partial: retention rules are placeholders; not a real security boundary"],
+    ["12. Reporting and dashboard","Metrics, top-10 shortlist, review queue, pipeline summary","Demonstrated; time saved shows as not measured"],
+    ["13. Technical requirements","Single HTML file; data model visible in code; exportable","Partial: data resets on reload; no persistent database"],
+    ["14. Items to confirm","Listed on the Admin tab","Open, pending DL3"]
+  ];
+  return `<div class="card"><h2>Requirements check</h2>${table(["Section","How this example shows it","Status"],r)}</div>`;
+}
+
+boot();
+</script>
+</body>
+</html>
