@@ -31,7 +31,7 @@ Setup (in Render, service > **Environment**):
 - `AI_CHECK_RANGE`: DL3's target equity check, for example `$2M to $10M`. Without it, check-size scores stay low.
 - `AI_DAILY_LIMIT`: the most research runs in 24 hours (default 40). Each run costs money, and anyone with the
   page address can start one, so keep this low.
-- `AI_MODEL`: optional. The default is `claude-opus-5-5`; a cheaper model can be set here.
+- `AI_MODEL`: optional. The default is the small, low-cost `claude-haiku-5-5`. A more capable (and more expensive) model can be set here.
 
 The search tool must also be allowed for the organization that owns the key (Claude Console settings).
 

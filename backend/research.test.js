@@ -93,11 +93,12 @@ test("system prompt tells the model the key rules", () => {
 // ---- end to end with a simulated AI service -------------------------------------------------
 const url = process.env.TEST_DATABASE_URL;
 test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, async t => {
-  const saved = { key: process.env.ANTHROPIC_API_KEY, base: process.env.ANTHROPIC_BASE_URL, lim: process.env.AI_DAILY_LIMIT };
-  let mode = "good", calls = 0;
+  const saved = { key: process.env.ANTHROPIC_API_KEY, base: process.env.ANTHROPIC_BASE_URL, lim: process.env.AI_DAILY_LIMIT, model: process.env.AI_MODEL };
+  delete process.env.AI_MODEL;
+  let mode = "good", calls = 0, lastBody = null;
   const ai = http.createServer((req, res) => {
     let body = ""; req.on("data", c => body += c); req.on("end", () => {
-      calls++;
+      calls++; try { lastBody = JSON.parse(body); } catch { lastBody = null; }
       if (mode === "unauthorized") { res.writeHead(401, { "content-type": "application/json" }); return res.end(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "secret detail" } })); }
       const message = (content, stop) => JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: "claude-opus-5-5", content, stop_reason: stop, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } });
       const search = [{ type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: { query: "x" } },
@@ -119,7 +120,7 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   const base = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
     server.close(); ai.close(); await pool.end();
-    for (const [k, v] of [["ANTHROPIC_API_KEY", saved.key], ["ANTHROPIC_BASE_URL", saved.base], ["AI_DAILY_LIMIT", saved.lim]]) v === undefined ? delete process.env[k] : process.env[k] = v;
+    for (const [k, v] of [["ANTHROPIC_API_KEY", saved.key], ["ANTHROPIC_BASE_URL", saved.base], ["AI_DAILY_LIMIT", saved.lim], ["AI_MODEL", saved.model]]) v === undefined ? delete process.env[k] : process.env[k] = v;
   });
   const call = async (method, p, body) => { const r = await fetch(base + p, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) }; };
   const waitFor = async (id, status) => { for (let i = 0; i < 80; i++) { const r = await call("GET", `/api/investors/${id}`); if (r.json.record.data.ai_status === status) return r.json.record.data; await new Promise(r => setTimeout(r, 100)); } throw new Error("timed out waiting for " + status); };
@@ -140,6 +141,17 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   assert.equal(done.review_status, "pending", "stays in review");
   assert.match(done.ai_summary, /Chicago interest: 5\/5/);
   assert.match(done.ai_missing, /Decision-makers are not collected/);
+
+  // the default model is the small one: basic web search and no fallback parameter
+  assert.equal(lastBody.model, "claude-haiku-5-5");
+  assert.equal(lastBody.tools[0].type, "web_search_20250305");
+  assert.equal(lastBody.fallbacks, undefined);
+  process.env.AI_MODEL = "claude-opus-5-5";
+  const idBig = await add("Big Model Fund"); await call("POST", `/api/investors/${idBig}/research`); await waitFor(idBig, "done");
+  assert.equal(lastBody.model, "claude-opus-5-5");
+  assert.equal(lastBody.tools[0].type, "web_search_20260209");
+  assert.equal(lastBody.fallbacks, "default");
+  delete process.env.AI_MODEL;
 
   // guards
   const confirmed = await add("Done Co"); await call("PATCH", `/api/investors/${confirmed}`, { review_status: "approved" });
