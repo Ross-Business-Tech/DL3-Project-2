@@ -33,13 +33,14 @@ button.primary,nav button.primary{background:var(--accent);color:#fff;border-col
 button:disabled{opacity:.45;cursor:not-allowed}
 .notice{padding:8px 10px;border-radius:6px;background:var(--chip);margin:0 0 12px}
 .disclaimer{font-size:12px;color:var(--muted)}
+.contact{overflow-wrap:anywhere;word-break:break-word}
 </style>
 </head>
 <body>
 <header>
   <div>
     <h1>DL3 Investor CRM: pilot example</h1>
-    <div class="disclaimer">All investors come from public research. Individuals are not named. As of 2026-11-03. Data resets when the page reloads.</div>
+    <div class="disclaimer">All investors come from public research. Contact details are business contacts the firms publish themselves. As of 2026-11-10.</div>
   </div>
   <div class="row">
     <label>Viewing as
@@ -132,6 +133,25 @@ let INV=[];
 /* ---------- Core logic ---------- */
 function esc(v){return String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function val(id){return document.getElementById(id).value}
+/* Contact fields (firm-published business contacts) */
+const CONTACT_FIELDS=[
+  {k:"website",label:"Website"},
+  {k:"email",label:"Email"},
+  {k:"linkedin",label:"LinkedIn"},
+  {k:"phone",label:"Phone"},
+  {k:"address",label:"Address"}
+];
+/* Turn web links and email addresses inside already-escaped text into clickable links.
+   Only http(s) and plain email addresses become links, so stored text cannot inject scripts. */
+function linkify(text){
+  return esc(text)
+    .replace(/https?:\/\/[^\s;,<>"']+/g,u=>`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`)
+    .replace(/(^|[\s;:(])([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![^<]*<\/a>)/g,(m,p,e)=>`${p}<a href="mailto:${e}">${e}</a>`);
+}
+function contactBlock(i){
+  const rows=CONTACT_FIELDS.filter(c=>i[c.k]).map(c=>`<div><strong>${c.label}</strong><br><span class="contact">${linkify(i[c.k]).replace(/\n/g,"<br>")}</span></div>`);
+  return rows.length?`<div class="grid" style="margin-top:10px">${rows.join("")}</div>`:`<div class="muted" style="margin-top:10px">No website, email or LinkedIn recorded yet.</div>`;
+}
 function days(a,b){return (Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/864e5}
 function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9]/g,"")}
 function findDup(name){return INV.find(x=>norm(x.name)===norm(name))}
@@ -216,6 +236,7 @@ async function saveDetail(id) {
   i.type = val("d_type"); i.hq = val("d_hq").trim(); i.check = val("d_check").trim(); i.strategy = val("d_strategy").trim();
   i.sources = parseSources(val("d_sources")); i.decisionMakers = parseDM(val("d_dm")); i.deals = lines(val("d_deals"));
   i.stage = stage; i.owner = val("d_owner").trim(); i.next = val("d_next"); i.notes = val("d_notes");
+  CONTACT_FIELDS.forEach(c => i[c.k] = val("d_" + c.k).trim());
   i.suppressed = document.getElementById("d_supp").checked;
   CRIT.forEach(c => i.scores[c.k] = +val("sc_" + c.k));
   if (JSON.stringify(toRec(i)) === before) { S.msg = "No changes to save."; render(); return; }
@@ -281,49 +302,142 @@ function saveWeights(){
   S.msg="Saved scoring version "+S.wVersion+".";
   render();
 }
+/* CSV reader that handles quoted cells with commas and line breaks */
+function csvRows(t){
+  const rows=[];let row=[],cell="",q=false;
+  t=String(t||"").replace(/^﻿/,"");
+  for(let k=0;k<t.length;k++){
+    const ch=t[k];
+    if(q){
+      if(ch==='"'){if(t[k+1]==='"'){cell+='"';k++}else q=false}
+      else cell+=ch;
+    }else if(ch==='"')q=true;
+    else if(ch===","){row.push(cell);cell=""}
+    else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&t[k+1]==="\n")k++;row.push(cell);rows.push(row);row=[];cell=""}
+    else cell+=ch;
+  }
+  if(cell!==""||row.length){row.push(cell);rows.push(row)}
+  return rows.filter(r=>r.some(c=>c.trim()!==""));
+}
+/* Column names in the investor research spreadsheet (PraxisRock research). Matching ignores case, spaces and punctuation. */
+const RESEARCH_COLS={
+  name:["Investor"],type:["Type"],hq:["HQ / Chicago activity"],chicagoEv:["Chicago evidence (deal, date)"],
+  mfEv:["Multifamily / mixed-income evidence"],check:["Check size (estimate from deals)"],strategy:["Strategy"],
+  dm:["Decision-makers (public sources)"],src1:["Source 1 (URL)"],src1d:["Source 1 date"],src2:["Source 2 (URL)"],src2d:["Source 2 date"],
+  s_chicago:["Chicago interest (0-5)"],s_mf:["Multifamily fit (0-5)"],s_check:["Equity check size (0-5)"],s_strategy:["Strategy fit (0-5)"],
+  s_evidence:["Evidence of deals (0-5)"],s_capital:["Capital and investor type (0-5)"],
+  confReason:["Confidence reason"],missing:["Missing data / flags"],website:["Website"],
+  genEmail:["General email (firm-published)","General email","Email"],indEmail:["Individual emails (firm-published)","Individual emails"],
+  phone:["Phone"],address:["Address"],linkedin:["LinkedIn (firm-published)","LinkedIn"],
+  researchStatus:["Contact research status"],pagesRead:["Pages read","Page read"],contactNotes:["Contact notes"],
+  praxisType:["PraxisRock type"],praxisProfile:["PraxisRock profile"],est:["Est.","Founded","Est"],aum:["AUM (PraxisRock)","Est. AUM (PraxisRock)","AUM"],
+  sectors:["Sectors"],via:["Invests via"],chiHq:["Chicago-area HQ"],reMention:["Real estate mentioned"],verification:["Verification"]
+};
+function colIndex(head){
+  const h=head.map(norm), ix={};
+  for(const k in RESEARCH_COLS){
+    const at=RESEARCH_COLS[k].map(n=>h.indexOf(norm(n))).find(n=>n>=0);
+    if(at!==undefined)ix[k]=at;
+  }
+  return ix;
+}
+function cleanType(t){
+  const x=String(t||"").trim().toLowerCase();
+  return TYPES.find(T=>T.toLowerCase()===x)||(x?"Unclassified":"Unclassified");
+}
+function score(v){const n=parseInt(v,10);return isNaN(n)?0:Math.max(0,Math.min(5,n))}
+function notFound(v){return !v||/^(none found|not found|not found in sources|not disclosed)$/i.test(v.trim())}
+/* "Jane Doe (Partner); John Roe" -> "Jane Doe | Partner" lines */
+function splitPeople(text){
+  if(notFound(text))return [];
+  const out=[];let depth=0,cur="";
+  for(const ch of text){if(ch==="(")depth++;if(ch===")")depth--;if(ch===";"&&depth<=0){out.push(cur);cur=""}else cur+=ch}
+  out.push(cur);
+  return out.map(p=>p.trim()).filter(Boolean).map(p=>{const m=p.match(/^([^(]+?)\s*\((.*)\)\s*$/);return m?{name:m[1].trim(),title:m[2].trim(),src:""}:{name:p,title:"",src:""}});
+}
+function fromResearchRow(r,ix){
+  const g=k=>ix[k]===undefined?"":String(r[ix[k]]||"").trim();
+  const i=newInv(g("name"),cleanType(g("type")),g("hq"),"Investor research import");
+  i.strategy=g("strategy"); i.check=g("check");
+  i.scores={chicago:score(g("s_chicago")),mf:score(g("s_mf")),check:score(g("s_check")),strategy:score(g("s_strategy")),evidence:score(g("s_evidence")),capital:score(g("s_capital"))};
+  i.decisionMakers=splitPeople(g("dm"));
+  i.deals=[g("chicagoEv"),g("mfEv")].filter(x=>!notFound(x));
+  i.sources=[[g("src1"),g("src1d")],[g("src2"),g("src2d")]].filter(s=>s[0]||s[1]).map((s,k)=>({id:"S"+(k+1),label:"Research source "+(k+1),url:s[0],accessed:s[1],published:null}));
+  i.selfReported=/self-reported/i.test(g("missing")+" "+g("confReason"));
+  i.website=g("website");
+  i.email=[g("genEmail"),g("indEmail")].filter(Boolean).join("\n");
+  i.linkedin=g("linkedin"); i.phone=g("phone"); i.address=g("address");
+  const note=(label,k)=>g(k)?label+": "+g(k):"";
+  i.notes=["Origin: investor research import (PraxisRock list)",note("Contact notes","contactNotes"),note("Research flags","missing"),note("Confidence reason","confReason"),
+    note("PraxisRock type","praxisType"),note("PraxisRock profile","praxisProfile"),note("Founded","est"),note("AUM (PraxisRock)","aum"),note("Sectors","sectors"),
+    note("Invests via","via"),note("Chicago-area HQ","chiHq"),note("Real estate mentioned","reMention"),note("Contact research status","researchStatus"),
+    note("Pages read","pagesRead"),note("Verification","verification")].filter(Boolean).join("\n");
+  i.stage="researched";
+  i.review="approved";
+  return i;
+}
 function parseCsv(t){
-  return t.trim().split(/\r?\n/).slice(1).filter(Boolean).map(l=>{
-    const [n="",ty="",h=""]=l.split(",").map(x=>x.trim());
-    return {name:n,type:ty,hq:h};
-  });
+  const rows=csvRows(t);
+  if(!rows.length)return [];
+  const ix=colIndex(rows[0]);
+  const research=ix.name!==undefined&&ix.s_chicago!==undefined;
+  S.importKind=research?"research":"simple";
+  if(research)return rows.slice(1).map(r=>{const inv=fromResearchRow(r,ix);return {name:inv.name,type:inv.type,hq:inv.hq,inv}});
+  const h=rows[0].map(norm), at=(n,d)=>{const k=h.indexOf(n);return k>=0?k:d};
+  const ni=at("name",0),ti=at("type",1),hi=at("hq",2);
+  return rows.slice(1).map(r=>({name:(r[ni]||"").trim(),type:(r[ti]||"").trim(),hq:(r[hi]||"").trim()}));
 }
 function previewImport(){
+  S.csvDraft=val("csvIn");
   const seen=new Set();
-  S.importRows=parseCsv(val("csvIn")).map(r=>{
+  S.importRows=parseCsv(S.csvDraft).map(r=>{
     const d=findDup(r.name), inFile=seen.has(norm(r.name));
     seen.add(norm(r.name));
     let status;
     if(!r.name)status="Invalid: no name";
     else if(d)status="Duplicate of "+d.name+": skipped";
     else if(inFile)status="Duplicate within file: skipped";
-    else status="New: will add with pending scores and sources";
+    else status=r.inv?"New: will add with scores, sources and contacts":"New: will add with pending scores and sources";
     return {...r,status,ok:!!r.name&&!d&&!inFile};
   });
-  S.msg="Preview ready. Nothing has been saved yet.";
+  const n=S.importRows.filter(r=>r.ok).length;
+  S.msg=(S.importKind==="research"?"Recognised the investor research columns. ":"")+n+" new row(s) ready. Nothing has been saved yet.";
   render();
+}
+function loadCsvFile(input){
+  const f=input.files&&input.files[0];
+  if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{S.csvDraft=String(rd.result||"");document.getElementById("csvIn").value=S.csvDraft;previewImport()};
+  rd.onerror=()=>{S.msg="Could not read that file. Try saving it as CSV and choosing it again.";render()};
+  rd.readAsText(f);
 }
 async function commitImport() {
   if (!can("edit") || !S.importRows) return;
   let n = 0, failed = 0;
+  S.loading = true; render();
   for (const r of S.importRows.filter(r => r.ok)) {
     if (findDup(r.name)) continue;
-    const i = newInv(r.name, r.type || "Unclassified", r.hq, "Conference import");
-    i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
+    const i = r.inv || newInv(r.name, r.type || "Unclassified", r.hq, "Conference import");
+    if (!r.inv) i.review = "pending";
+    i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
     INV.push(i);
+    autoLog(i, "Created", "Imported by " + S.role, r.inv ? "Review contacts and fit" : "Check details and confirm");
     try { await persist(i); n++; } catch (e) { failed++; }
   }
-  log("Imported " + n + " prospect(s)", "CSV import");
-  S.importRows = null;
-  S.msg = "Imported " + n + " new prospect(s) to the review queue." + (failed ? " " + failed + " could not be saved to the shared list." : "");
+  log("Imported " + n + " prospect(s)", S.importKind === "research" ? "Investor research CSV import" : "CSV import");
+  S.importRows = null; S.csvDraft = ""; S.loading = false;
+  S.msg = "Imported " + n + " new prospect(s)." + (failed ? " " + failed + " could not be saved to the shared list, so they will disappear on reload. Check that you are signed in as a workspace member, then import again (saved rows are skipped as duplicates)." : "");
   render();
 }
 
 function buildCsv(){
   const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
-  const head=["name","type","hq","stage","owner","fit","confidence","approval","next_follow_up","introduction_paths","flags"];
+  const head=["name","type","hq","stage","owner","fit","confidence","approval","next_follow_up","website","email","linkedin","phone","address","introduction_paths","flags"];
   const showRel=["Admin","Approver"].includes(S.role);
   const lines=INV.map(i=>[i.name,i.type,i.hq,i.stage,i.owner,fit(i).t,conf(i),
     i.approval?i.approval.by+" "+i.approval.date:"none",i.next,
+    i.website||"",i.email||"",i.linkedin||"",i.phone||"",i.address||"",
     showRel?i.rel.map(r=>r.holder).join("; ")||"none":"restricted",
     flags(i).join("; ")].map(q).join(","));
   return [head.join(","),...lines].join("\n");
@@ -353,7 +467,9 @@ function toRec(i) {
     s_chicago: sc.chicago | 0, s_mf: sc.mf | 0, s_check: sc.check | 0, s_strategy: sc.strategy | 0, s_evidence: sc.evidence | 0, s_capital: sc.capital | 0,
     sources_text: sourcesText(i), decision_text: dmText(i), deals_text: (i.deals || []).join("\n"),
     stage: i.stage || "", owner: i.owner || "", approval_by: i.approval ? i.approval.by : "", approval_date: i.approval ? i.approval.date : "",
-    next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
+    next_date: i.next || "", last_date: i.last || "", notes: i.notes || "",
+    website: i.website || "", email: i.email || "", linkedin: i.linkedin || "", phone: i.phone || "", address: i.address || "",
+    suppressed: !!i.suppressed, self_reported: !!i.selfReported,
     review_status: i.review || "approved"
   };
 }
@@ -366,6 +482,7 @@ function fromRec(r, k) {
     selfReported: !!d.self_reported, sources: parseSources(d.sources_text), decisionMakers: parseDM(d.decision_text), deals: lines(d.deals_text),
     stage: d.stage || "identified", owner: d.owner || "Unassigned", approval: d.approval_by ? { by: d.approval_by, date: d.approval_date } : null,
     next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: [], notes: d.notes || "", acts: [], history: [],
+    website: d.website || "", email: d.email || "", linkedin: d.linkedin || "", phone: d.phone || "", address: d.address || "",
     review: d.review_status || "approved"
   };
 }
@@ -502,6 +619,7 @@ function detail(i) {
     <div style="margin-top:8px"><label>Strategy<br><input id="d_strategy" value="${esc(i.strategy)}" style="width:100%"></label></div>
     <div style="margin-top:8px"><label>Sources, one per line: label | link | date accessed | date published<br><textarea id="d_sources" rows="3" style="width:100%">${esc(sourcesText(i))}</textarea></label></div>
     <div style="margin-top:8px"><label>Contacts, one per line: name | title (firm contacts only)<br><textarea id="d_dm" rows="2" style="width:100%">${esc(dmText(i))}</textarea></label></div>
+    <div class="grid" style="margin-top:8px">${CONTACT_FIELDS.map(c => `<label>${c.label}<br><textarea id="d_${c.k}" rows="2" style="width:100%">${esc(i[c.k] || "")}</textarea></label>`).join("")}</div>
     <div style="margin-top:8px"><label>Prior deals, one per line<br><textarea id="d_deals" rows="2" style="width:100%">${esc(i.deals.join("\n"))}</textarea></label></div>
     <div class="row" style="margin-top:8px">
       <label>Stage <select id="d_stage">${STAGES.map(s => `<option ${s === i.stage ? "selected" : ""}>${s}</option>`).join("")}</select></label>
@@ -522,7 +640,9 @@ function detail(i) {
       <div><strong>Prior transactions</strong><br>${i.deals.map(d => esc(d)).join("<br>") || "None recorded"}</div>
     </div>
     <div><strong>Contacts</strong><br>${dms}</div>
+    ${contactBlock(i)}
     <div style="margin-top:8px"><strong>Flags</strong><br>${flagChips(i) || "None"}</div>
+    ${i.notes ? `<div style="margin-top:8px"><strong>Research notes</strong><br><span class="contact">${linkify(i.notes).replace(/\n/g, "<br>")}</span></div>` : ""}
     <h2>Scores</h2>
     <div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     <h2>Sources</h2>
@@ -604,11 +724,13 @@ function vIO(){
   const sample="name,type,hq\nInvestor 2,Institutional,Milwaukee WI\nSample Conference Firm,Family office,Chicago IL";
   const preview=S.importRows?`
     <h2>Import preview</h2>
-    ${table(["Name","Type","HQ","Status"],S.importRows.map(r=>[esc(r.name),esc(r.type),esc(r.hq),esc(r.status)]))}
+    ${table(["Name","Type","HQ","Fit","Email / LinkedIn","Status"],S.importRows.map(r=>[esc(r.name),esc(r.type),esc(r.hq),r.inv?fit(r.inv).t:"",r.inv?((r.inv.email?"email ":"")+(r.inv.linkedin?"LinkedIn":"")||"none"):"",esc(r.status)]))}
     <div class="row" style="margin-top:8px"><button class="primary" onclick="commitImport()" ${can("edit")?"":"disabled"}>Commit new rows</button>${can("edit")?"":'<span class="muted">Admin or Editor only</span>'}</div>`:"";
   return `
   <div class="card">
     <h2>Import conference or database list (CSV)</h2>
+    <p class="muted" style="margin-top:0">Choose a CSV file or paste it below. The investor research spreadsheet is recognised by its column names: scores, sources, website, email, LinkedIn, phone and address all come across.</p>
+    <div class="row" style="margin-bottom:8px"><label>Choose CSV file <input type="file" accept=".csv,text/csv" onchange="loadCsvFile(this)" ${can("edit")?"":"disabled"}></label></div>
     <textarea id="csvIn" rows="5" style="width:100%">${esc(S.csvDraft||sample)}</textarea>
     <div class="row" style="margin-top:8px">
       <button onclick="previewImport()">Preview</button>
