@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>DL3 Investor Prospecting</h1>
-    <p class="subtitle">Pilot list: sample records plus investors from public research. Individuals are not named.</p>
+    <p class="subtitle">Pilot list: investors from public research. Individuals are not named.</p>
     <p class="label">Prototype scoring (simulated)</p>
   </header>
 
@@ -18,7 +18,18 @@
     <section id="list" aria-label="Ranked investors"></section>
   </main>
 
-  <script src="ai.js"></script>
-  <script src="script.js"></script>
+  <script>
+    // Always load the newest copy of the page's files, never a saved old one.
+    (function () {
+      var t = Date.now();
+      function load(src, next) {
+        var s = document.createElement("script");
+        s.src = src + "?t=" + t;
+        s.onload = next;
+        document.body.appendChild(s);
+      }
+      load("ai.js", function () { load("script.js"); });
+    })();
+  </script>
 </body>
 </html>
