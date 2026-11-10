@@ -1,31 +1,214 @@
-{"collections":{"investors":{
- "fields":{
-  "name":{"type":"string","required":true,"maxLength":160,"trim":true},
-  "type":{"type":"string","maxLength":40},
-  "hq":{"type":"string","maxLength":160},
-  "strategy":{"type":"string","maxLength":400},
-  "check_size":{"type":"string","maxLength":120},
-  "s_chicago":{"type":"integer","minimum":0,"maximum":5},
-  "s_mf":{"type":"integer","minimum":0,"maximum":5},
-  "s_check":{"type":"integer","minimum":0,"maximum":5},
-  "s_strategy":{"type":"integer","minimum":0,"maximum":5},
-  "s_evidence":{"type":"integer","minimum":0,"maximum":5},
-  "s_capital":{"type":"integer","minimum":0,"maximum":5},
-  "sources_text":{"type":"string","maxLength":4000},
-  "decision_text":{"type":"string","maxLength":2000},
-  "deals_text":{"type":"string","maxLength":4000},
-  "stage":{"type":"string","maxLength":40},
-  "owner":{"type":"string","maxLength":80},
-  "approval_by":{"type":"string","maxLength":80},
-  "approval_date":{"type":"string","maxLength":20},
-  "next_date":{"type":"string","maxLength":20},
-  "last_date":{"type":"string","maxLength":20},
-  "notes":{"type":"string","maxLength":2000},
-  "suppressed":{"type":"boolean"},
-  "self_reported":{"type":"boolean"},
-  "review_status":{"type":"string","maxLength":20}
- },
- "access":{"read":"public","insert":"public","update":"public","delete":"owner"},
- "publicMutation":"open",
- "rateLimit":"60/hour/ip"
-}}}
+{
+ "collections": {
+  "investors": {
+   "fields": {
+    "name": {
+     "type": "string",
+     "required": true,
+     "maxLength": 160,
+     "trim": true
+    },
+    "type": {
+     "type": "string",
+     "maxLength": 40
+    },
+    "hq": {
+     "type": "string",
+     "maxLength": 160
+    },
+    "strategy": {
+     "type": "string",
+     "maxLength": 400
+    },
+    "check_size": {
+     "type": "string",
+     "maxLength": 120
+    },
+    "s_chicago": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_mf": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_check": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_strategy": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_evidence": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "s_capital": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5
+    },
+    "sources_text": {
+     "type": "string",
+     "maxLength": 4000
+    },
+    "decision_text": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "deals_text": {
+     "type": "string",
+     "maxLength": 4000
+    },
+    "stage": {
+     "type": "string",
+     "maxLength": 40
+    },
+    "owner": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "approval_by": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "approval_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "next_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "last_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "notes": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "suppressed": {
+     "type": "boolean"
+    },
+    "self_reported": {
+     "type": "boolean"
+    },
+    "review_status": {
+     "type": "string",
+     "maxLength": 20
+    }
+   },
+   "access": {
+    "read": "public",
+    "insert": "public",
+    "update": "public",
+    "delete": "owner"
+   },
+   "publicMutation": "open",
+   "rateLimit": "60/hour/ip"
+  },
+  "outreach": {
+   "fields": {
+    "investor_rid": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "investor_name": {
+     "type": "string",
+     "required": true,
+     "maxLength": 160,
+     "trim": true
+    },
+    "project": {
+     "type": "string",
+     "maxLength": 120
+    },
+    "channel": {
+     "type": "string",
+     "maxLength": 40
+    },
+    "direction": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "touch_date": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "logged_by": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "summary": {
+     "type": "string",
+     "maxLength": 2000
+    },
+    "interest": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "amount_m": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 100000
+    },
+    "next_step": {
+     "type": "string",
+     "maxLength": 400
+    },
+    "follow_up": {
+     "type": "string",
+     "maxLength": 20
+    },
+    "follow_up_done": {
+     "type": "boolean"
+    }
+   },
+   "access": {
+    "read": "public",
+    "insert": "public",
+    "update": "public",
+    "delete": "owner"
+   },
+   "publicMutation": "open",
+   "rateLimit": "120/hour/ip"
+  },
+  "projects": {
+   "fields": {
+    "name": {
+     "type": "string",
+     "required": true,
+     "maxLength": 120,
+     "trim": true
+    },
+    "target_m": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 100000
+    },
+    "summary": {
+     "type": "string",
+     "maxLength": 400
+    },
+    "active": {
+     "type": "boolean"
+    }
+   },
+   "access": {
+    "read": "public",
+    "insert": "public",
+    "update": "public",
+    "delete": "owner"
+   },
+   "publicMutation": "open",
+   "rateLimit": "120/hour/ip"
+  }
+ }
+}
