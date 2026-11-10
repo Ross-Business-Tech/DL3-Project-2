@@ -1,0 +1,16 @@
+{
+  "name": "dl3-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Small API and web server for the DL3 investor CRM (Render)",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pg": "^8.13.0"
+  }
+}
