@@ -6,11 +6,6 @@ const tools = [
     title: 'Investor CRM',
     text: 'Shared list of investors. Add, review and edit records as a team.',
   },
-  {
-    href: '/prospecting/',
-    title: 'Investor Prospecting',
-    text: 'Ranked list of investors by fit score.',
-  },
 ]
 
 function App() {
