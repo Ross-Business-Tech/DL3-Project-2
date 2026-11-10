@@ -33,6 +33,23 @@ button.primary,nav button.primary{background:var(--accent);color:#fff;border-col
 button:disabled{opacity:.45;cursor:not-allowed}
 .notice{padding:8px 10px;border-radius:6px;background:var(--chip);margin:0 0 12px}
 .disclaimer{font-size:12px;color:var(--muted)}
+.gauge{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.gbar{display:inline-block;width:56px;height:7px;border-radius:4px;background:var(--chip);overflow:hidden}
+.gfill{display:block;height:100%}
+.gfill.hot{background:var(--good)}.gfill.warm{background:#4a8c6a}.gfill.luke{background:var(--warn)}.gfill.cold{background:var(--muted)}.gfill.none{background:var(--bad)}
+.fu{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.fu:last-of-type{border-bottom:0}
+.fu.late{border-left:3px solid var(--bad);padding-left:8px}
+.fu-main{flex:1 1 240px;min-width:0}
+.fu-side{flex:0 1 auto;text-align:right}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px}
+.formgrid label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.formgrid label.wide{grid-column:1/-1}
+.formgrid input,.formgrid select{font-size:14px;color:var(--text);width:100%;box-sizing:border-box}
+.pbar{height:10px;border-radius:5px;background:var(--chip);overflow:hidden;margin-top:6px}
+.pbar span{display:block;height:100%;background:var(--good)}
+.btnlink{display:inline-block;padding:5px 10px;border:1px solid var(--border);border-radius:6px;color:var(--text);text-decoration:none}
+@media (max-width:600px){.fu-side{text-align:left;width:100%}.fu-side .row{justify-content:flex-start!important}main{padding:12px}}
 </style>
 </head>
 <body>
@@ -56,9 +73,10 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </header>
 <nav id="nav">
   <button data-tab="Dashboard" onclick="go('Dashboard')">Dashboard</button>
+  <button data-tab="Tracker" onclick="go('Tracker')">Outreach tracker</button>
   <button data-tab="Prospects" onclick="go('Prospects')">Prospects</button>
   <button data-tab="Scoring" onclick="go('Scoring')">Scoring</button>
-  <button data-tab="Outreach" onclick="go('Outreach')">Outreach</button>
+  <button data-tab="Outreach" onclick="go('Outreach')">Pipeline &amp; approvals</button>
   <button data-tab="Activity" onclick="go('Activity')">Activity</button>
   <button data-tab="Import" onclick="go('Import')">Import</button>
   <button data-tab="Audit" onclick="go('Audit')">Audit</button>
@@ -66,6 +84,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <button data-tab="Requirements" onclick="go('Requirements')">Requirements check</button>
 </nav>
 <main id="app"></main>
+<script src="tracker.js?v=1"></script>
 
 <script>
 /* ---------- Constants ---------- */
@@ -334,11 +353,12 @@ async function loadInv() {
   INV = all.map((r, k) => fromRec(r, k));
 }
 async function persist(i) {
+  if (S.demo) return null;
   if (i.rid) return api("PATCH", COL + "/" + i.rid, toRec(i));
   const r = await api("POST", COL, toRec(i)); i.rid = r.record.id; return r;
 }
 async function saveRemote(i, okText) {
-  try { await persist(i); return okText; }
+  try { await persist(i); return okText + (S.demo ? " (Demo mode: not saved.)" : ""); }
   catch (e) { return "Could not save to the shared list (" + e.message + "). The change is on screen only. Check that you are signed in as a workspace member, then try again."; }
 }
 async function seedShared() {
@@ -400,13 +420,22 @@ async function pollResearch(id, startedAt) {
   setTimeout(() => pollResearch(id, startedAt), 4000);
 }
 async function boot() {
+  if (location.hash === "#tracker") S.tab = "Tracker";
   S.loading = true; render();
   try { await loadInv(); S.loadError = ""; }
-  catch (e) { S.loadError = "Could not reach the shared list. Reload the page, and if it keeps failing ask the team to check the server. (" + e.message + ")"; }
+  catch (e) {
+    if (window.INVESTORS_API) S.loadError = "Could not reach the shared list. Reload the page, and if it keeps failing ask the team to check the server. (" + e.message + ")";
+    else { // a here.now test link has no shared list: show made-up sample data, nothing is saved
+      S.demo = true;
+      INV = SEED.map(x => { const c = JSON.parse(JSON.stringify(x)); c.review = "approved"; return c; });
+      [0, 6, 9, 10, 14, 18, 19].forEach(k => { if (INV[k]) { INV[k].approval = { by: "Approver", date: AS_OF }; INV[k].stage = "approved for outreach"; } });
+    }
+  }
   if (window.INVESTORS_API) {
     try { S.research = await api("GET", "/api/research/status"); } catch (e) { S.research = { enabled: false }; }
     INV.filter(x => x.aiStatus === "running").forEach(x => pollResearch(x.id, Date.now()));
   }
+  await loadTracker();
   S.loading = false; render();
 }
 
@@ -547,9 +576,10 @@ function vImport() {
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Outreach": vOutreach, "Activity": vActivity, "Import": vImport, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
+  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Tracker": vTracker, "Outreach": vOutreach, "Activity": vActivity, "Import": vImport, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
+  else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
   else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;
   else if (INV.length === 0) top = `<div class="card"><p>The shared list is empty. Load the 25 research investors once:</p><button class="primary" onclick="seedShared()" ${can("edit") ? "" : "disabled"}>Load research investors</button></div>`;
   const notice = S.msg ? `<div class="notice">${esc(S.msg)}</div>` : "";
@@ -577,6 +607,7 @@ function vDash(){
     ${metric(sl.length,"Shortlist (top 10, excludes low confidence)")}
     ${metric(rq.length,"Awaiting human review")}
     ${metric(od.length,"Overdue follow-ups")}
+    ${metric(`<a href="#" onclick="go('Tracker');return false">${followUps().filter(o=>o.follow_up<=todayStr()).length}</a>`,"Outreach follow-ups due now (open the Outreach tracker)")}
     ${metric("Not measured","Time saved per qualified prospect (needs baseline)")}
   </div>
   <h2>Top-10 shortlist</h2>

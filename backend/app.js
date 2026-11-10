@@ -11,7 +11,6 @@ import { askPdf, askWebsite, sanitizeFirms, checkWebsiteUrl, MAX_PDF_BYTES } fro
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_DIR = path.resolve(HERE, "../sites/investor-crm");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(SITE_DIR, ".herenow/data.json"), "utf8"));
-const FIELDS = MANIFEST.collections.investors.fields; // single source of truth for allowed fields
 const MAX_RECORD_BYTES = 16 * 1024;
 const ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const ID_PATTERN = /^rec_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -23,20 +22,32 @@ export function newId() {
   return s;
 }
 
-// Check a request body against the field list. Returns { data } or { error }.
-export function validate(body, { requireName, server = false }) {
+const COLLECTIONS = Object.keys(MANIFEST.collections); // the only table names that ever reach SQL
+const DATE_FIELDS = new Set(["touch_date", "follow_up", "next_date", "last_date", "approval_date", "ai_updated"]);
+const CHOICES = { // fixed lists used by the outreach tracker
+  interest: ["Committed", "Hot", "Warm", "Lukewarm", "No reply yet", "Passed"],
+  direction: ["out", "in", "meeting"],
+  channel: ["Email", "Call", "Meeting", "LinkedIn", "Introduction", "Event", "Site visit"]
+};
+
+// Check a request body against the manifest's field list for one collection. Returns { data } or { error }.
+export function validate(body, { requireName, server = false, collection = "investors" }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Body must be a JSON object." };
+  const fields = MANIFEST.collections[collection].fields;
   const data = {};
   for (const [key, value] of Object.entries(body)) {
-    const f = FIELDS[key];
+    const f = fields[key];
     if (!f || (!server && key.startsWith("ai_"))) return { error: `Unknown field: ${key}` };
     if (f.type === "string") {
       if (typeof value !== "string") return { error: `${key} must be text.` };
       const v = f.trim ? value.trim() : value;
       if (f.maxLength && v.length > f.maxLength) return { error: `${key} is too long (max ${f.maxLength}).` };
+      if (DATE_FIELDS.has(key) && !/^(\d{4}-\d{2}-\d{2})?$/.test(v)) return { error: `${key} must be a date like 2026-11-10.` };
+      if (CHOICES[key] && !CHOICES[key].includes(v)) return { error: `${key} must be one of: ${CHOICES[key].join(", ")}.` };
       data[key] = v;
-    } else if (f.type === "integer") {
-      if (!Number.isInteger(value)) return { error: `${key} must be a whole number.` };
+    } else if (f.type === "integer" || f.type === "number") {
+      const ok = f.type === "integer" ? Number.isInteger(value) : typeof value === "number" && Number.isFinite(value);
+      if (!ok) return { error: `${key} must be ${f.type === "integer" ? "a whole number" : "a number"}.` };
       if (f.minimum != null && value < f.minimum) return { error: `${key} must be at least ${f.minimum}.` };
       if (f.maximum != null && value > f.maximum) return { error: `${key} must be at most ${f.maximum}.` };
       data[key] = value;
@@ -47,8 +58,11 @@ export function validate(body, { requireName, server = false }) {
       return { error: `Unsupported field type for ${key}.` };
     }
   }
-  if (requireName && !data.name) return { error: "name is required." };
-  if ("name" in data && !data.name) return { error: "name cannot be empty." };
+  for (const [key, f] of Object.entries(fields)) {
+    if (!f.required) continue;
+    if (requireName && !data[key]) return { error: `${key} is required.` };
+    if (key in data && !data[key]) return { error: `${key} cannot be empty.` };
+  }
   if (Buffer.byteLength(JSON.stringify(data)) > MAX_RECORD_BYTES) return { error: "Record is too large." };
   return { data };
 }
@@ -158,30 +172,14 @@ export function createApp(pool) {
   const pageHtml = fs.readFileSync(path.join(SITE_DIR, "index.html"), "utf8")
     .replace("<script>", '<script>window.INVESTORS_API="/api/investors";</script>\n<script>');
   app.get("/", (req, res) => res.type("html").send(pageHtml));
+  const trackerJs = fs.readFileSync(path.join(SITE_DIR, "tracker.js"), "utf8");
+  app.get("/tracker.js", (req, res) => res.type("application/javascript").set("Cache-Control", "no-cache").send(trackerJs));
   app.get("/favicon.ico", (req, res) => res.status(204).end());
   app.get("/healthz", async (req, res) => {
     try { await pool.query("select 1"); res.type("text").send("ok"); } catch { res.status(503).type("text").send("database unavailable"); }
   });
 
   const reads = limiter({ windowMs: 3600_000, max: 1200 });
-  const writes = limiter({ windowMs: 3600_000, max: 300 });
-
-  app.get("/api/investors", reads, async (req, res) => {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
-    let after = null;
-    if (req.query.cursor) {
-      try { const [t, id] = Buffer.from(String(req.query.cursor), "base64url").toString().split("|"); after = { t, id }; if (!t || !ID_PATTERN.test(id)) throw 0; }
-      catch { return res.status(400).json({ error: "Bad cursor." }); }
-    }
-    const params = after ? [after.t, after.id, limit + 1] : [limit + 1];
-    const where = after ? "where (created_at, id) > ($1::timestamptz, $2)" : "";
-    const { rows } = await pool.query(`select id, data, created_at, updated_at, created_at::text as created_text from investors ${where} order by created_at, id limit $${params.length}`, params);
-    const page = rows.slice(0, limit);
-    const last = page[page.length - 1];
-    const nextCursor = rows.length > limit ? Buffer.from(`${last.created_text}|${last.id}`).toString("base64url") : null;
-    res.json({ records: page.map(row), nextCursor });
-  });
-
 
   const researchLimit = limiter({ windowMs: 3600_000, max: 10 });
   app.get("/api/research/status", reads, async (req, res) => {
@@ -223,28 +221,51 @@ export function createApp(pool) {
     res.json(rows[0]);
   });
 
-  app.get("/api/investors/:id", reads, async (req, res) => {
-    if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
-    const { rows } = await pool.query("select id, data, created_at, updated_at from investors where id = $1", [req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: "Not found." });
-    res.json({ record: row(rows[0]) });
-  });
+  // One set of routes per collection in the manifest (investors, outreach, projects).
+  // The table name comes from that fixed list, never from the request.
+  for (const col of COLLECTIONS) {
+    const writeMax = col === "investors" ? 300 : parseInt((/^(\d+)\/hour\/ip$/.exec(MANIFEST.collections[col].rateLimit || "") || [])[1], 10) || 300;
+    const colWrites = limiter({ windowMs: 3600_000, max: writeMax });
 
-  app.post("/api/investors", writes, async (req, res) => {
-    const v = validate(req.body, { requireName: true });
-    if (v.error) return res.status(400).json({ error: v.error });
-    const { rows } = await pool.query("insert into investors (id, data) values ($1, $2) returning id, data, created_at, updated_at", [newId(), v.data]);
-    res.status(201).json({ record: row(rows[0]) });
-  });
+    app.get(`/api/${col}`, reads, async (req, res) => {
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+      let after = null;
+      if (req.query.cursor) {
+        try { const [t, id] = Buffer.from(String(req.query.cursor), "base64url").toString().split("|"); after = { t, id }; if (!t || !ID_PATTERN.test(id)) throw 0; }
+        catch { return res.status(400).json({ error: "Bad cursor." }); }
+      }
+      const params = after ? [after.t, after.id, limit + 1] : [limit + 1];
+      const where = after ? "where (created_at, id) > ($1::timestamptz, $2)" : "";
+      const { rows } = await pool.query(`select id, data, created_at, updated_at, created_at::text as created_text from ${col} ${where} order by created_at, id limit $${params.length}`, params);
+      const page = rows.slice(0, limit);
+      const last = page[page.length - 1];
+      const nextCursor = rows.length > limit ? Buffer.from(`${last.created_text}|${last.id}`).toString("base64url") : null;
+      res.json({ records: page.map(row), nextCursor });
+    });
 
-  app.patch("/api/investors/:id", writes, async (req, res) => {
-    if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
-    const v = validate(req.body, { requireName: false });
-    if (v.error) return res.status(400).json({ error: v.error });
-    const { rows } = await pool.query("update investors set data = data || $2::jsonb, updated_at = now() where id = $1 returning id, data, created_at, updated_at", [req.params.id, v.data]);
-    if (!rows.length) return res.status(404).json({ error: "Not found." });
-    res.json({ record: row(rows[0]) });
-  });
+    app.get(`/api/${col}/:id`, reads, async (req, res) => {
+      if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+      const { rows } = await pool.query(`select id, data, created_at, updated_at from ${col} where id = $1`, [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "Not found." });
+      res.json({ record: row(rows[0]) });
+    });
+
+    app.post(`/api/${col}`, colWrites, async (req, res) => {
+      const v = validate(req.body, { requireName: true, collection: col });
+      if (v.error) return res.status(400).json({ error: v.error });
+      const { rows } = await pool.query(`insert into ${col} (id, data) values ($1, $2) returning id, data, created_at, updated_at`, [newId(), v.data]);
+      res.status(201).json({ record: row(rows[0]) });
+    });
+
+    app.patch(`/api/${col}/:id`, colWrites, async (req, res) => {
+      if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+      const v = validate(req.body, { requireName: false, collection: col });
+      if (v.error) return res.status(400).json({ error: v.error });
+      const { rows } = await pool.query(`update ${col} set data = data || $2::jsonb, updated_at = now() where id = $1 returning id, data, created_at, updated_at`, [req.params.id, v.data]);
+      if (!rows.length) return res.status(404).json({ error: "Not found." });
+      res.json({ record: row(rows[0]) });
+    });
+  }
 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found." }));
   app.use((req, res) => res.status(404).type("text").send("Not found"));
@@ -258,13 +279,15 @@ export function createApp(pool) {
 }
 
 export async function migrate(pool) {
-  await pool.query(`create table if not exists investors (
-    id text primary key,
-    data jsonb not null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  )`);
-  await pool.query("create index if not exists investors_created_idx on investors (created_at, id)");
+  for (const col of COLLECTIONS) {
+    await pool.query(`create table if not exists ${col} (
+      id text primary key,
+      data jsonb not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )`);
+    await pool.query(`create index if not exists ${col}_created_idx on ${col} (created_at, id)`);
+  }
   await pool.query(`create table if not exists imports (
     id text primary key, status text not null, kind text not null, label text not null,
     result jsonb, error text, created_at timestamptz not null default now())`);

@@ -53,6 +53,19 @@ The **Import** tab reads a PDF (up to 10 MB) or a web page and adds each firm it
 saves it as a CSV file with scores, fit, confidence, sources, review status and notes. Text that starts with `=`,
 `+`, `-` or `@` is neutralised so a spreadsheet cannot run it as a formula.
 
+## Outreach tracker
+
+The **Outreach tracker** tab (designed and written by a teammate) logs every email, call, meeting and reply with
+the DL3 project it was for, gauges each investor's interest per project, suggests follow-up dates, and shows how much
+each project has soft-circled against its target. Logging outreach also updates the investor's last contact,
+next follow-up and pipeline stage. The earlier "Outreach" tab is now **Pipeline & approvals**; an Approver must
+approve an investor there before DL3 can log outreach to them. Replies from investors can always be logged.
+
+The data is in two more tables, `outreach` and `projects`, served at `/api/outreach` and `/api/projects` with the same
+checks as the investor list: unknown fields are refused, dates must look like `2026-11-10`, and interest, channel and
+direction must come from fixed lists. On a here.now test link there is no shared data, so the tab shows made-up sample
+projects and saves nothing.
+
 ## Run it on a computer with Postgres
 
 ```bash
