@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DL3 Investor Prospecting</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
@@ -18,7 +18,18 @@
     <section id="list" aria-label="Ranked investors"></section>
   </main>
 
-  <script src="ai.js?v=2"></script>
-  <script src="script.js?v=2"></script>
+  <script>
+    // Always load the newest copy of the page's files, never a saved old one.
+    (function () {
+      var t = Date.now();
+      function load(src, next) {
+        var s = document.createElement("script");
+        s.src = src + "?t=" + t;
+        s.onload = next;
+        document.body.appendChild(s);
+      }
+      load("ai.js", function () { load("script.js"); });
+    })();
+  </script>
 </body>
 </html>
