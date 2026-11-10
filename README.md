@@ -7,6 +7,5 @@ Test website (here.now): https://dl3-investor-prospecting.rossbusinesstech.here.
 
 - Home page: `/`
 - Investor CRM: `/crm/`
-- Investor Prospecting: `/prospecting/`
 
 Note: the here.now website is temporary. It will be moved to Vercel later, and this link will change then.
