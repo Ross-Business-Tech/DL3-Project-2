@@ -17,9 +17,9 @@ const MAX_SOURCES = 8, MAX_DEALS = 8;
 
 export const researchEnabled = () => !!process.env.ANTHROPIC_API_KEY;
 
-const clip = (v, n) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n) : "");
+export const clip = (v, n) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n) : "");
 const validDate = (d, today) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d)) && d <= today;
-const httpsUrl = u => { try { const x = new URL(u); return x.protocol === "https:" && u.length <= 500 ? x.href : null; } catch { return null; } };
+export const httpsUrl = u => { try { const x = new URL(u); return x.protocol === "https:" && u.length <= 500 ? x.href : null; } catch { return null; } };
 
 export function systemPrompt() {
   const range = process.env.AI_CHECK_RANGE || "not specified";
@@ -45,14 +45,20 @@ Answer with one JSON object and nothing else:
 Source numbers start at 1 and refer to the order of the "sources" list.`;
 }
 
-// Check the model's answer. Returns { data, summary, missing } ready to merge into a record.
-// allowedUrls = pages the web search really returned; anything else is dropped.
-export function sanitizeResult(text, allowedUrls, today = new Date().toISOString().slice(0, 10)) {
+// Find the JSON object in the model's text. Throws a plain message if there isn't a usable one.
+export function parseJsonObject(text) {
   const start = text.indexOf("{"), end = text.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("The AI answer was not in the expected format.");
   let raw;
   try { raw = JSON.parse(text.slice(start, end + 1)); } catch { throw new Error("The AI answer was not in the expected format."); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("The AI answer was not in the expected format.");
+  return raw;
+}
+
+// Check the model's answer. Returns { data, summary, missing } ready to merge into a record.
+// allowedUrls = pages the web search really returned; anything else is dropped.
+export function sanitizeResult(text, allowedUrls, today = new Date().toISOString().slice(0, 10)) {
+  const raw = parseJsonObject(text);
 
   const notes = [];
   const allowed = new Set([...allowedUrls].map(u => { try { return new URL(u).href; } catch { return u; } }));

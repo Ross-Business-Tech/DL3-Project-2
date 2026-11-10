@@ -60,7 +60,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <button data-tab="Scoring" onclick="go('Scoring')">Scoring</button>
   <button data-tab="Outreach" onclick="go('Outreach')">Outreach</button>
   <button data-tab="Activity" onclick="go('Activity')">Activity</button>
-  <button data-tab="Import / Export" onclick="go('Import / Export')">Import / Export</button>
+  <button data-tab="Import" onclick="go('Import')">Import</button>
   <button data-tab="Audit" onclick="go('Audit')">Audit</button>
   <button data-tab="Admin" onclick="go('Admin')">Admin</button>
   <button data-tab="Requirements" onclick="go('Requirements')">Requirements check</button>
@@ -283,55 +283,6 @@ function saveWeights(){
   S.msg="Saved scoring version "+S.wVersion+".";
   render();
 }
-function parseCsv(t){
-  return t.trim().split(/\r?\n/).slice(1).filter(Boolean).map(l=>{
-    const [n="",ty="",h=""]=l.split(",").map(x=>x.trim());
-    return {name:n,type:ty,hq:h};
-  });
-}
-function previewImport(){
-  const seen=new Set();
-  S.importRows=parseCsv(val("csvIn")).map(r=>{
-    const d=findDup(r.name), inFile=seen.has(norm(r.name));
-    seen.add(norm(r.name));
-    let status;
-    if(!r.name)status="Invalid: no name";
-    else if(d)status="Duplicate of "+d.name+": skipped";
-    else if(inFile)status="Duplicate within file: skipped";
-    else status="New: will add with pending scores and sources";
-    return {...r,status,ok:!!r.name&&!d&&!inFile};
-  });
-  S.msg="Preview ready. Nothing has been saved yet.";
-  render();
-}
-async function commitImport() {
-  if (!can("edit") || !S.importRows) return;
-  let n = 0, failed = 0;
-  for (const r of S.importRows.filter(r => r.ok)) {
-    if (findDup(r.name)) continue;
-    const i = newInv(r.name, r.type || "Unclassified", r.hq, "Conference import");
-    i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
-    INV.push(i);
-    try { await persist(i); n++; } catch (e) { failed++; }
-  }
-  log("Imported " + n + " prospect(s)", "CSV import");
-  S.importRows = null;
-  S.msg = "Imported " + n + " new prospect(s) to the review queue." + (failed ? " " + failed + " could not be saved to the shared list." : "");
-  render();
-}
-
-function buildCsv(){
-  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
-  const head=["name","type","hq","stage","owner","fit","confidence","approval","next_follow_up","introduction_paths","flags"];
-  const showRel=["Admin","Approver"].includes(S.role);
-  const lines=INV.map(i=>[i.name,i.type,i.hq,i.stage,i.owner,fit(i).t,conf(i),
-    i.approval?i.approval.by+" "+i.approval.date:"none",i.next,
-    showRel?i.rel.map(r=>r.holder).join("; ")||"none":"restricted",
-    flags(i).join("; ")].map(q).join(","));
-  return [head.join(","),...lines].join("\n");
-}
-function generateExport(){S.exportText=buildCsv();S.msg="CSV generated. Select all in the box and copy it to save.";render()}
-
 /* ---------- Shared list (here.now Site Data) ---------- */
 const COL = window.INVESTORS_API || "./.herenow/data/investors";
 async function api(method, url, body) {
@@ -459,10 +410,144 @@ async function boot() {
   S.loading = false; render();
 }
 
+/* ---------- Export (database to CSV) ---------- */
+function csvCell(v) {
+  let s = String(v == null ? "" : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stops spreadsheet programs treating text as a formula
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+async function exportCsv() {
+  let note = "";
+  if (window.INVESTORS_API) { try { await loadInv(); } catch (e) { note = " (could not refresh from the database, so this is what was on screen)"; } }
+  const head = ["record_id", "name", "type", "hq", "website", "firm_linkedin", "firm_contact_email", "strategy", "check_size",
+    "score_chicago", "score_multifamily", "score_check_size", "score_strategy", "score_evidence", "score_capital", "fit", "fit_capped", "confidence",
+    "review_status", "stage", "owner", "outreach_approval", "next_follow_up", "flags", "sources", "deals", "contacts", "notes",
+    "ai_status", "ai_summary", "ai_missing", "suppressed"];
+  const rows = INV.map(i => {
+    const f = fit(i);
+    return [i.rid || i.id, i.name, i.type, i.hq, i.website, i.linkedin, i.contactEmail, i.strategy, i.check,
+      i.scores.chicago, i.scores.mf, i.scores.check, i.scores.strategy, i.scores.evidence, i.scores.capital, f.t, f.capped ? "yes" : "no", conf(i),
+      i.review === "pending" ? "pending" : "confirmed", i.stage, i.owner, i.approval ? i.approval.by + " " + i.approval.date : "none", i.next,
+      flags(i).join("; "), i.sources.map(s => `${s.label} ${s.url} (${s.published || "undated"})`).join(" ; "), i.deals.join(" ; "),
+      i.decisionMakers.map(d => d.name + (d.title ? ", " + d.title : "")).join(" ; "), i.notes,
+      i.aiStatus || "", (i.aiSummary || "").replace(/\n/g, " "), (i.aiMissing || "").replace(/\n/g, " "), i.suppressed ? "yes" : "no"];
+  });
+  const csv = "﻿" + [head.join(","), ...rows.map(r => r.map(csvCell).join(","))].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = "dl3-investors-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  S.msg = "Downloaded " + INV.length + " investors as a CSV file" + note + ".";
+  render();
+}
+
+/* ---------- Import (PDF or website) ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function importReady() { return !!(window.INVESTORS_API && S.research && S.research.enabled); }
+async function pollImport(id) {
+  const end = Date.now() + 6 * 60 * 1000;
+  while (Date.now() < end) {
+    await sleep(3000);
+    let j;
+    try { j = await api("GET", "/api/import/" + id); } catch (e) { continue; }
+    if (j.status === "running") continue;
+    if (j.status === "failed") { S.imp = { msg: (j.error || "The import failed.") + " Nothing was added." }; render(); return; }
+    try { await loadInv(); } catch (e) { /* the list reloads on the next refresh */ }
+    try { S.research = await api("GET", "/api/research/status"); } catch (e) { /* keep old value */ }
+    S.imp = { msg: "Import finished.", result: j.result, label: j.label }; render(); return;
+  }
+  S.imp = { msg: "The import is taking too long. Reload the page in a few minutes to see whether it finished." }; render();
+}
+async function startImportRequest(label, send) {
+  S.imp = { busy: true, msg: "Sending " + label + "..." }; render();
+  try {
+    const r = await send();
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "The server returned an error (" + r.status + ").");
+    S.imp = { busy: true, msg: "Reading " + label + ". This can take a minute or two." }; render();
+    await pollImport(j.id);
+  } catch (e) { S.imp = { msg: e.message }; render(); }
+}
+async function importPdf() {
+  const f = document.getElementById("imp_pdf").files[0];
+  if (!f) { S.imp = { msg: "Choose a PDF file first." }; render(); return; }
+  if (f.size > 10 * 1024 * 1024) { S.imp = { msg: "That file is larger than 10 MB." }; render(); return; }
+  await startImportRequest(f.name, () => fetch("/api/import/pdf", { method: "POST", headers: { "Content-Type": "application/pdf", "X-Filename": encodeURIComponent(f.name) }, body: f }));
+}
+async function importSite() {
+  const u = document.getElementById("imp_url").value.trim();
+  if (!/^https:\/\//i.test(u)) { S.imp = { msg: "Enter a full web address that starts with https://." }; render(); return; }
+  await startImportRequest(u, () => fetch("/api/import/website", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u }) }));
+}
+async function researchBatch(rids) {
+  if (S.batch && S.batch.running) return;
+  S.batch = { running: true, stop: false, done: 0, failed: 0, total: rids.length, msg: "" }; render();
+  for (const rid of rids) {
+    if (S.batch.stop) break;
+    let cur = INV.find(x => x.rid === rid); if (!cur) { S.batch.done++; continue; }
+    try { await api("POST", COL + "/" + rid + "/research"); }
+    catch (e) {
+      if (e.message === "HTTP 429") { S.batch.msg = "Stopped: the research limit has been reached."; break; }
+      S.batch.failed++; S.batch.done++; render(); continue;
+    }
+    cur.aiStatus = "running"; render();
+    const end = Date.now() + 6 * 60 * 1000;
+    while (cur.aiStatus === "running" && Date.now() < end && !S.batch.stop) {
+      await sleep(4000);
+      try { cur = await refreshOne(cur); } catch (e) { /* try again */ }
+    }
+    if (cur.aiStatus !== "done") S.batch.failed++;
+    S.batch.done++; render();
+  }
+  const b = S.batch; b.running = false;
+  S.msg = "Researched " + (b.done - b.failed) + " of " + b.total + " imported investors." + (b.failed ? " " + b.failed + " did not finish." : "") + (b.msg ? " " + b.msg : "") + " Open each one, check it, and press Confirm record.";
+  try { S.research = await api("GET", "/api/research/status"); } catch (e) { /* keep */ }
+  render();
+}
+function importResultHtml(r) {
+  const made = r.created.map(c => INV.find(x => x.rid === c.id)).filter(Boolean);
+  const rids = made.map(x => x.rid);
+  const left = S.research && S.research.remainingToday;
+  const b = S.batch;
+  const names = made.length ? `<div style="margin:8px 0">${made.map(x => `<span class="chip">${nameLink(x)}</span>`).join(" ")}</div>` : "";
+  const run = b && b.running
+    ? `<div class="notice">Researching ${b.done} of ${b.total} done. This takes a minute or two per investor. <button onclick="S.batch.stop=true">Stop after this one</button></div>`
+    : made.length ? `<div class="row"><button class="primary" onclick='researchBatch(${JSON.stringify(rids)})'>Research these ${made.length} now</button><span class="muted">${typeof left === "number" ? left + " research runs left today. " : ""}Each one uses the AI and costs money. You can also research them one at a time later.</span></div>` : "";
+  return `<div class="card"><h2>Import result</h2>
+    <p><strong>${made.length}</strong> added to the review queue as Pending, with no scores yet.
+    ${r.skippedDuplicates.length ? ` ${r.skippedDuplicates.length} already in the list (skipped).` : ""}
+    ${r.skippedIndividuals ? ` ${r.skippedIndividuals} individual people ignored (firms only).` : ""}
+    ${r.leftOver ? ` ${r.leftOver} more firms were not imported because one import is limited to 50. Run it again for the rest.` : ""}</p>
+    ${names}${run}
+    <p class="muted">Details come only from the PDF or page and are unchecked. Scores need the research step, so the new investors rank low until they are researched and confirmed.</p></div>`;
+}
+function vImport() {
+  const ready = importReady();
+  const why = !window.INVESTORS_API ? "Importing needs the AI service, which is only on the Render version of this tool."
+    : !ready ? "Importing is not set up yet: the AI key has not been added." : "";
+  const imp = S.imp || {};
+  const off = ready ? "" : "disabled";
+  const busy = imp.busy || (S.batch && S.batch.running) ? "disabled" : off;
+  return `
+  ${why ? `<div class="notice">${esc(why)}</div>` : ""}
+  ${imp.msg ? `<div class="notice">${esc(imp.msg)}</div>` : ""}
+  ${imp.result ? importResultHtml(imp.result) : ""}
+  <div class="card"><h2>Import from a PDF</h2>
+    <p class="muted">Upload a PDF list of investors (up to 10 MB). The AI reads it and adds each firm to the review queue. Individual people are skipped.</p>
+    <div class="row"><input type="file" id="imp_pdf" accept="application/pdf,.pdf" ${off}><button class="primary" onclick="importPdf()" ${busy}>Read PDF</button></div></div>
+  <div class="card"><h2>Import from a website</h2>
+    <p class="muted">Paste the address of a page that lists investors. It must start with https://.</p>
+    <div class="row"><input id="imp_url" placeholder="https://" style="min-width:260px" ${off}><button class="primary" onclick="importSite()" ${busy}>Read website</button></div></div>
+  <div class="card"><h2>Export</h2>
+    <p class="muted">Download the whole list as a CSV file that opens in Excel or Google Sheets. It includes scores, fit, sources, review status and notes.</p>
+    <button onclick="exportCsv()">Download CSV</button></div>`;
+}
+
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Outreach": vOutreach, "Activity": vActivity, "Import / Export": vIO, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
+  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Outreach": vOutreach, "Activity": vActivity, "Import": vImport, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
   else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;
@@ -510,7 +595,7 @@ function vDash(){
 function vProspects(){
   const f=S.filters;
   const sel=(id,opts,cur,label)=>`<select onchange="setF('${id}',this.value)"><option value="">${label}</option>${opts.map(o=>`<option ${o===cur?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
-  const bar=`<div class="card row"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf",["High","Medium","Low"],f.conf,"All confidence")}${sel("type",TYPES,f.type,"All types")}${sel("stage",STAGES,f.stage,"All stages")}</div>`;
+  const bar=`<div class="card row"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf",["High","Medium","Low"],f.conf,"All confidence")}${sel("type",TYPES,f.type,"All types")}${sel("stage",STAGES,f.stage,"All stages")}<button onclick="exportCsv()">Export CSV</button></div>`;
   const rows=filtered().map(i=>`<tr style="cursor:pointer" onclick="selectInv('${i.id}')"><td>${esc(i.name)}</td><td>${esc(i.type)}</td><td>${fit(i).t}</td><td>${conf(i)}</td><td>${esc(i.stage)}</td><td>${esc(i.owner)}</td><td>${i.next||"none set"}</td><td>${flagChips(i)}</td></tr>`).join("");
   const t=`<div class="card wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Fit</th><th>Confidence</th><th>Stage</th><th>Owner</th><th>Next follow-up</th><th>Flags</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="muted">No prospects match these filters</td></tr>'}</tbody></table></div>`;
   const add=can("edit")?`<div class="card"><h2>Add prospect manually</h2><div class="row"><input id="np_name" placeholder="Name"><select id="np_type">${TYPES.filter(x=>x!=="Unclassified").map(x=>`<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="HQ"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API&&S.research&&S.research.enabled?'<button onclick="addProspect(true)">Add and research</button>':""}</div><div class="muted" style="margin-top:6px">Duplicate names are blocked.</div></div>`:"";
@@ -657,29 +742,6 @@ function vActivity(){
   return `<div class="card"><h2>Activity log</h2><div class="muted" style="margin-bottom:6px">Entries marked auto are written by the system from record changes. Manual entries are calls, meetings, and emails.</div>${table(["Date","Prospect","Type","Person","Summary","Next step"],rows.map(({i,a})=>[a.date,esc(i.name),esc(a.type)+(a.auto?' <span class="chip">auto</span>':""),esc(a.person),esc(a.summary),esc(a.next)]))}</div>${form}`;
 }
 
-function vIO(){
-  const sample="name,type,hq\nInvestor 2,Institutional,Milwaukee WI\nSample Conference Firm,Family office,Chicago IL";
-  const preview=S.importRows?`
-    <h2>Import preview</h2>
-    ${table(["Name","Type","HQ","Status"],S.importRows.map(r=>[esc(r.name),esc(r.type),esc(r.hq),esc(r.status)]))}
-    <div class="row" style="margin-top:8px"><button class="primary" onclick="commitImport()" ${can("edit")?"":"disabled"}>Commit new rows</button>${can("edit")?"":'<span class="muted">Admin or Editor only</span>'}</div>`:"";
-  return `
-  <div class="card">
-    <h2>Import conference or database list (CSV)</h2>
-    <textarea id="csvIn" rows="5" style="width:100%">${esc(S.csvDraft||sample)}</textarea>
-    <div class="row" style="margin-top:8px">
-      <button onclick="previewImport()">Preview</button>
-      <span class="muted">Each row is matched against existing records before saving.</span>
-    </div>
-    ${preview}
-  </div>
-  <div class="card">
-    <h2>Export</h2>
-    <div class="row"><button onclick="generateExport()">Generate CSV</button><span class="muted">Full export: scores, sources, flags, approvals. Introduction paths are included only for Admin and Approver.</span></div>
-    ${S.exportText?`<textarea readonly rows="8" style="width:100%;margin-top:8px;font-family:ui-monospace,monospace">${esc(S.exportText)}</textarea>`:""}
-  </div>`;
-}
-
 function vAudit(){
   if(!can("audit"))return `<div class="card muted">The audit log is visible to Admin and Approver roles only.</div>`;
   return `<div class="card"><h2>Audit log</h2>${table(["Date","Role","Action","Detail"],S.audit.map(a=>[a.date,esc(a.role),esc(a.action),esc(a.detail)]))}</div>`;
@@ -736,7 +798,7 @@ function vReq(){
     ["7. Outreach workflow","11 stages, approval required before contacted, stage history; the tool does not send messages","Demonstrated"],
     ["8. Activity logging","Date, type, person, summary, and next step; role-limited logging","Demonstrated"],
     ["9. Follow-up and reminders","Next follow-up, overdue alerts, inactivity flag","Demonstrated; 30-day threshold is a placeholder"],
-    ["10. Import and export","CSV import with preview and duplicate matching; full CSV export","Partial: export appears as text to copy because this page cannot save files"],
+    ["10. Import and export","PDF and website import (AI reads the document, firms go to the review queue, duplicates skipped); full CSV download of the database","Demonstrated on the Render version; import needs the AI key"],
     ["11. Privacy, security, compliance","Role-limited views, suppression flag, audit log of edits and relationship views","Partial: retention rules are placeholders; not a real security boundary"],
     ["12. Reporting and dashboard","Metrics, top-10 shortlist, review queue, pipeline summary","Demonstrated; time saved shows as not measured"],
     ["13. Technical requirements","Single HTML file; data model visible in code; exportable","Partial: data resets on reload; no persistent database"],

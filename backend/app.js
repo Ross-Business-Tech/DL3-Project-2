@@ -5,7 +5,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { researchEnabled, askModel, sanitizeResult, CRITERIA } from "./research.js";
+import { researchEnabled, askModel, sanitizeResult, CRITERIA, clip } from "./research.js";
+import { askPdf, askWebsite, sanitizeFirms, checkWebsiteUrl, MAX_PDF_BYTES } from "./importer.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_DIR = path.resolve(HERE, "../sites/investor-crm");
@@ -102,6 +103,45 @@ export async function runResearchJob(pool, id, name) {
   }
 }
 
+// ---- Import from a PDF or web page ----------------------------------------------------------
+// Runs in the background. Creates one "pending" investor per firm; nothing is scored here.
+export async function runImportJob(pool, jobId, { kind, label, sourceUrl, read }) {
+  try {
+    const text = await read();
+    const existing = (await pool.query("select data->>'name' as n from investors")).rows.map(r => r.n);
+    const out = sanitizeFirms(text, existing, { label, sourceUrl, kind });
+    const db = await pool.connect();
+    const created = [];
+    try {
+      await db.query("begin");
+      for (const rec of out.records) {
+        const v = validate(rec, { requireName: true, server: true });
+        if (v.error) continue;
+        const id = newId();
+        await db.query("insert into investors (id, data) values ($1, $2)", [id, v.data]);
+        created.push({ id, name: v.data.name });
+      }
+      await db.query("commit");
+    } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
+    const result = { created, skippedDuplicates: out.skippedDuplicates, skippedIndividuals: out.skippedIndividuals, leftOver: out.leftOver };
+    await pool.query("update imports set status = 'done', result = $2 where id = $1", [jobId, result]);
+  } catch (e) {
+    console.error("import failed:", e.message);
+    const msg = typeof e.status === "number" ? `The AI service returned an error (code ${e.status}).` : /^The AI /.test(e.message) ? e.message : "The import could not be completed.";
+    await pool.query("update imports set status = 'failed', error = $2 where id = $1", [jobId, msg]).catch(e2 => console.error("could not record failure:", e2.message));
+  }
+}
+
+async function startImport(pool, res, { kind, label, sourceUrl, read }) {
+  if (!researchEnabled()) return res.status(503).json({ error: "Importing is not set up yet." });
+  if (await runsToday(pool) >= dailyLimit()) return res.status(429).json({ error: "The daily limit has been reached. Try again tomorrow." });
+  await pool.query("insert into research_runs default values");
+  const id = crypto.randomUUID();
+  await pool.query("insert into imports (id, status, kind, label) values ($1, 'running', $2, $3)", [id, kind, label]);
+  res.status(202).json({ id });
+  runImportJob(pool, id, { kind, label, sourceUrl, read }).catch(e => console.error("import job crashed:", e.message));
+}
+
 const row = r => ({ id: r.id, data: r.data, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString() });
 
 export function createApp(pool) {
@@ -162,6 +202,27 @@ export function createApp(pool) {
     runResearchJob(pool, req.params.id, String(cur.name || "")).catch(e => console.error("research job crashed:", e.message));
   });
 
+
+  const importLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.IMPORT_HOURLY_LIMIT, 10) || 6 });
+  app.post("/api/import/pdf", importLimit, express.raw({ type: "application/pdf", limit: MAX_PDF_BYTES }), async (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length < 8 || buf.subarray(0, 5).toString("latin1") !== "%PDF-") return res.status(400).json({ error: "Please send a PDF file." });
+    let name = "document.pdf";
+    try { name = clip(decodeURIComponent(String(req.get("x-filename") || "")).split(/[\\/]/).pop(), 80) || name; } catch { /* keep default */ }
+    await startImport(pool, res, { kind: "PDF", label: name, sourceUrl: "", read: () => askPdf(buf) });
+  });
+  app.post("/api/import/website", importLimit, async (req, res) => {
+    const url = checkWebsiteUrl(req.body && req.body.url);
+    if (!url) return res.status(400).json({ error: "Please give a full web address starting with https://." });
+    await startImport(pool, res, { kind: "website", label: clip(url, 80), sourceUrl: url, read: () => askWebsite(url) });
+  });
+  app.get("/api/import/:id", reads, async (req, res) => {
+    if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+    const { rows } = await pool.query("select status, kind, label, result, error from imports where id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Not found." });
+    res.json(rows[0]);
+  });
+
   app.get("/api/investors/:id", reads, async (req, res) => {
     if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
     const { rows } = await pool.query("select id, data, created_at, updated_at from investors where id = $1", [req.params.id]);
@@ -190,6 +251,7 @@ export function createApp(pool) {
   app.use((err, req, res, next) => { // never echo internal details to the browser
     console.error("request failed:", err.message);
     if (res.headersSent) return next(err);
+    if (err.type === "entity.too.large") return res.status(413).json({ error: "That file is too large (10 MB limit)." });
     res.status(err.status === 400 ? 400 : 500).json({ error: err.status === 400 ? "Bad request." : "Something went wrong on the server." });
   });
   return app;
@@ -203,5 +265,8 @@ export async function migrate(pool) {
     updated_at timestamptz not null default now()
   )`);
   await pool.query("create index if not exists investors_created_idx on investors (created_at, id)");
+  await pool.query(`create table if not exists imports (
+    id text primary key, status text not null, kind text not null, label text not null,
+    result jsonb, error text, created_at timestamptz not null default now())`);
   await pool.query("create table if not exists research_runs (id bigserial primary key, started_at timestamptz not null default now())");
 }

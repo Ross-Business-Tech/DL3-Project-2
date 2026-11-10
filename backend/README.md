@@ -35,6 +35,24 @@ Setup (in Render, service > **Environment**):
 
 The search tool must also be allowed for the organization that owns the key (Claude Console settings).
 
+## Import from a PDF or a website
+
+The **Import** tab reads a PDF (up to 10 MB) or a web page and adds each firm it lists to the review queue.
+- Only firms are added. Individual people are skipped and counted.
+- Details come only from the document and are marked unchecked. Nothing is scored at this step, so imported firms
+  rank low until they are researched.
+- Firms already in the list are skipped. One import adds at most 50 firms; run it again for more.
+- After an import, **Research these N now** runs the research step on each new firm, one at a time. Each run
+  costs money and counts toward `AI_DAILY_LIMIT` (an import also counts as one run).
+- A web page is read by Anthropic's web fetch tool, not by this server. Only plain `https://` addresses are accepted.
+- `IMPORT_HOURLY_LIMIT` (default 6) caps import requests per person per hour.
+
+## Export
+
+**Download CSV** (Import tab, or the **Export CSV** button on Prospects) reads the whole list from the database and
+saves it as a CSV file with scores, fit, confidence, sources, review status and notes. Text that starts with `=`,
+`+`, `-` or `@` is neutralised so a spreadsheet cannot run it as a formula.
+
 ## Run it on a computer with Postgres
 
 ```bash
