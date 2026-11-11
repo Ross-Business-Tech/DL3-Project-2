@@ -1,0 +1,24 @@
+# Render Blueprint for the DL3 investor CRM: one web service (page + API) and one Postgres database.
+# In Render: New > Blueprint > pick this repo. Free plans sleep when idle and the free database
+# expires after a trial period; switch both to a paid plan before a presentation.
+services:
+  - type: web
+    name: dl3-investor-crm
+    runtime: node
+    plan: free
+    buildCommand: npm --prefix backend ci
+    startCommand: node backend/server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dl3-investor-db
+          property: connectionString
+
+databases:
+  - name: dl3-investor-db
+    plan: free
+    databaseName: dl3_investors
+    user: dl3_investors
