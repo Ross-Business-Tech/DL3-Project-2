@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <title>DL3 Investor CRM - Pilot Example</title>
 <style>
-:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#ffffff;--surface:#ffffff;--card-bg:rgba(255,255,255,.62);--mark:.07;--text:#10201d;--muted:#58665f;--border:#dee1e2;--accent:#1f7a6e;--on-accent:#ffffff;--brand:#ffffff;--brand-text:#10201d;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#1d6b45;--warn:#8a5a00;--bad:#9b2226;--chip:#e3eeec;color-scheme:light}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#ffffff;--surface:#ffffff;--card-bg:rgba(255,255,255,.62);--mark:.07;--text:#10201d;--muted:#58665f;--border:#dee1e2;--accent:#1f7a6e;--on-accent:#ffffff;--brand:#ffffff;--brand-text:#10201d;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#1d6b45;--warn:#8a5a00;--bad:#9b2226;--chip:#f1f5f4;color-scheme:light}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0e1b19;--surface:#152724;--card-bg:rgba(21,39,36,.8);--mark:.05;--text:#e6efed;--muted:#9fb3ae;--border:#2a3f3b;--accent:#3fd0bf;--on-accent:#06201c;--brand:#0b2a26;--brand-text:#e6efed;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#1d3531;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#0e1b19;--surface:#152724;--card-bg:rgba(21,39,36,.8);--mark:.05;--text:#e6efed;--muted:#9fb3ae;--border:#2a3f3b;--accent:#3fd0bf;--on-accent:#06201c;--brand:#0b2a26;--brand-text:#e6efed;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#1d3531;color-scheme:dark}
 body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
@@ -33,7 +33,7 @@ button{font:inherit;padding:5px 10px;border:1px solid var(--border);border-radiu
 button.primary,nav button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 a{color:var(--accent)}
 button:disabled{opacity:.45;cursor:not-allowed}
-.notice{padding:8px 10px;border-radius:6px;background:var(--chip);margin:0 0 12px}
+.notice{padding:8px 10px;border-radius:6px;background:transparent;border:1px solid var(--border);border-left:3px solid var(--logo-teal);margin:0 0 12px}
 header .disclaimer{color:var(--muted)}
 header h1{color:var(--accent);font-size:18px}
 body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:url("dl3-logo.png") center 55%/min(78vmin,620px) no-repeat;opacity:var(--mark)}
