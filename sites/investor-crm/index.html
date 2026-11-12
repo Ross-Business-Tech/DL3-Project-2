@@ -52,6 +52,14 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 .formgrid input,.formgrid select{font-size:14px;color:var(--text);width:100%;box-sizing:border-box}
 .pbar{height:10px;border-radius:5px;background:var(--chip);overflow:hidden;margin-top:6px}
 .pbar span{display:block;height:100%;background:var(--fill)}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:8px 0}
+.sgrid .card{margin:0;padding:8px 10px}
+.sgrid .metric .v{font-size:20px}
+.linkchip{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--border);color:inherit}
+.linkchip:hover{border-color:var(--logo-teal)}
+.flagrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 0;border-top:1px solid var(--border)}
+.flagrow:first-child{border-top:0}
+.fixbox{margin:4px 0 8px;padding:10px;border:1px solid var(--logo-teal);border-radius:6px;border-left-width:3px}
 .btnlink{display:inline-block;padding:5px 10px;border:1px solid var(--border);border-radius:6px;color:var(--text);text-decoration:none}
 @media (max-width:600px){.fu-side{text-align:left;width:100%}.fu-side .row{justify-content:flex-start!important}main{padding:12px}}
 </style>
@@ -89,6 +97,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 </nav>
 <main id="app"></main>
 <script src="tracker.js?v=1"></script>
+<script src="groups.js?v=1"></script>
 
 <script>
 /* ---------- Constants ---------- */
@@ -183,23 +192,8 @@ function conf(i){
 function overdue(i){return !!i.next&&i.next<AS_OF&&!CLOSED.includes(i.stage)}
 function inactive(i){return days(AS_OF,i.last)>INACT_DAYS}
 function verifiable(i){return i.scores.evidence>=3&&i.decisionMakers.length>0&&recentCount(i)>=1}
-function flags(i) {
-  const f = [];
-  if (i.review === "pending") f.push("Pending review: confirm before use");
-  if (i.type === "Unclassified") f.push("Investor type not confirmed");
-  if (!i.decisionMakers.length) f.push("Contact missing");
-  if (i.sources.some(s => !s.published)) f.push("Unverified source date");
-  if (conf(i) === "Low") f.push("Needs human review");
-  if (fit(i).capped) f.push("Score capped at 60 (no verified deals)");
-  if (inactive(i)) f.push("No activity in " + INACT_DAYS + "+ days");
-  if (overdue(i)) f.push("Follow-up overdue");
-  if (i.stage === "contacted" && !i.approval) f.push("Approval record missing");
-  if (!i.rel.length) f.push("No introduction path recorded");
-  if (i.suppressed) f.push("Suppressed (removal request)");
-  return f;
-}
-
-function flagChips(i){return flags(i).map(f=>`<span class="chip flag">${esc(f)}</span>`).join("")}
+function flags(i) { return FLAG_CATALOG.filter(f => f.test(i)).map(f => f.label); }
+function flagChips(i){return FLAG_CATALOG.map((f,k)=>f.test(i)?`<button type="button" class="chip flag linkchip" title="Open this group and fix the flag" onclick="event.stopPropagation();openGroup('flag',${k})">${esc(f.label)}</button>`:"").join("")}
 function shortlist() { return INV.filter(i => !i.suppressed && conf(i) !== "Low" && i.review !== "pending").sort((a, b) => fit(b).t - fit(a).t).slice(0, 10); }
 
 function reviewQueue(){return INV.filter(i=>!i.suppressed&&conf(i)==="Low").sort((a,b)=>fit(b).t-fit(a).t)}
@@ -331,7 +325,8 @@ function toRec(i) {
     stage: i.stage || "", owner: i.owner || "", approval_by: i.approval ? i.approval.by : "", approval_date: i.approval ? i.approval.date : "",
     next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
     review_status: i.review || "approved",
-    website: i.website || "", linkedin: i.linkedin || "", contact_email: i.contactEmail || ""
+    website: i.website || "", linkedin: i.linkedin || "", contact_email: i.contactEmail || "",
+    intro_text: (i.rel || []).map(r => [r.holder, r.knows, r.confirmed || ""].join(" | ")).join("\n")
   };
 }
 function fromRec(r, k) {
@@ -342,7 +337,7 @@ function fromRec(r, k) {
     scores: { chicago: d.s_chicago | 0, mf: d.s_mf | 0, check: d.s_check | 0, strategy: d.s_strategy | 0, evidence: d.s_evidence | 0, capital: d.s_capital | 0 },
     selfReported: !!d.self_reported, sources: parseSources(d.sources_text), decisionMakers: parseDM(d.decision_text), deals: lines(d.deals_text),
     stage: d.stage || "identified", owner: d.owner || "Unassigned", approval: d.approval_by ? { by: d.approval_by, date: d.approval_date } : null,
-    next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: [], notes: d.notes || "", acts: [], history: [],
+    next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: lines(d.intro_text).map(l => { const p = l.split("|").map(x => x.trim()); return { holder: p[0] || "", knows: p[1] || "", confirmed: p[2] || "" }; }), notes: d.notes || "", acts: [], history: [],
     review: d.review_status || "approved",
     website: d.website || "", linkedin: d.linkedin || "", contactEmail: d.contact_email || "",
     aiStatus: d.ai_status || "", aiSummary: d.ai_summary || "", aiMissing: d.ai_missing || "", aiUpdated: d.ai_updated || "", aiStarted: d.ai_started || ""
@@ -580,7 +575,7 @@ function vImport() {
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Tracker": vTracker, "Outreach": vOutreach, "Activity": vActivity, "Import": vImport, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
+  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Tracker": vTracker, "Group": vGroup, "Outreach": vOutreach, "Activity": vActivity, "Import": vImport, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
   else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
@@ -602,18 +597,19 @@ function vDash(){
   const meets=INV.filter(i=>fit(i).t>=FIT_THRESHOLD).length;
   const ver=INV.filter(verifiable).length;
   const sl=shortlist(), rq=reviewQueue(), od=INV.filter(overdue), ina=INV.filter(inactive);
-  const stages=STAGES.map(s=>`<span class="chip">${s}: ${INV.filter(i=>i.stage===s).length}</span>`).join(" ");
+  const stages=STAGES.map(s=>`<button type="button" class="chip linkchip" onclick="openGroup('stage','${s}')">${s}: ${INV.filter(i=>i.stage===s).length}</button>`).join(" ");
   return `
   <div class="grid">
     ${metric(INV.length,"Prospects in pilot")}
     ${metric(Math.round(meets/n*100)+"%","Meet approved criteria (fit "+FIT_THRESHOLD+"+, threshold to confirm)")}
     ${metric(Math.round(ver/n*100)+"%","Verifiable history and current contacts")}
     ${metric(sl.length,"Shortlist (top 10, excludes low confidence)")}
-    ${metric(rq.length,"Awaiting human review")}
-    ${metric(od.length,"Overdue follow-ups")}
+    ${metric(`<a href="#" onclick="openGroup('conf','Low');return false">${rq.length}</a>`,"Awaiting human review (click to open)")}
+    ${metric(`<a href="#" onclick="openGroup('flag',flagIdx('overdue'));return false">${od.length}</a>`,"Overdue follow-ups (click to open)")}
     ${metric(`<a href="#" onclick="go('Tracker');return false">${followUps().filter(o=>o.follow_up<=todayStr()).length}</a>`,"Outreach follow-ups due now (open the Outreach tracker)")}
     ${metric("Not measured","Time saved per qualified prospect (needs baseline)")}
   </div>
+  ${groupsCard()}
   <h2>Top-10 shortlist</h2>
   <div class="card">${table(["Rank","Prospect","Fit","Confidence","Stage","Flags"],sl.map((i,k)=>[k+1,nameLink(i),fit(i).t,conf(i),esc(i.stage),flagChips(i)]))}</div>
   <h2>Review queue (low confidence, not on shortlist)</h2>

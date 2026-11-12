@@ -71,6 +71,10 @@ test("tracker API end to end", { skip: !url && "TEST_DATABASE_URL not set" }, as
   assert.match(js.headers.get("content-type"), /javascript/);
   assert.match(await js.text(), /function vTracker/);
   assert.match(await fetch(base + "/").then(r => r.text()), /<script src="tracker\.js\?v=1"><\/script>/);
+  const groupsJs = await fetch(base + "/groups.js");
+  assert.equal(groupsJs.status, 200);
+  assert.match(await groupsJs.text(), /FLAG_CATALOG/);
+  assert.match(await fetch(base + "/").then(r => r.text()), /<script src="groups\.js\?v=1"><\/script>/);
   const logo = await fetch(base + "/dl3-logo.png");
   assert.equal(logo.status, 200);
   assert.equal(logo.headers.get("content-type"), "image/png");

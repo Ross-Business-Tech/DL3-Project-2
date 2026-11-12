@@ -135,6 +135,10 @@
     "ai_started": {
      "type": "string",
      "maxLength": 40
+    },
+    "intro_text": {
+     "type": "string",
+     "maxLength": 1000
     }
    },
    "access": {

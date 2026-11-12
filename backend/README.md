@@ -66,6 +66,15 @@ checks as the investor list: unknown fields are refused, dates must look like `2
 direction must come from fixed lists. On a here.now test link there is no shared data, so the tab shows made-up sample
 projects and saves nothing.
 
+## Groups and flag fixes
+
+Every group in the tool is clickable: a flag, a pipeline stage, an investor type or a confidence level (on the
+Dashboard, in the Groups card, the stage chips and the tiles, and on the flag chips in any table). A group opens a page
+with a plain-language summary (how many investors, average fit, confidence and flag mix) and the investors in it.
+Each flag has a **Fix** button that opens a small form for exactly that problem, for example adding a contact, a
+source date, a deal, an introduction path or a new follow-up date. Fixes are saved to the database, and the investor
+leaves the group when its flag is gone. The list of flags and their fixes lives in `sites/investor-crm/groups.js`.
+
 ## Run it on a computer with Postgres
 
 ```bash

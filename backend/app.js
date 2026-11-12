@@ -172,8 +172,10 @@ export function createApp(pool) {
   const pageHtml = fs.readFileSync(path.join(SITE_DIR, "index.html"), "utf8")
     .replace("<script>", '<script>window.INVESTORS_API="/api/investors";</script>\n<script>');
   app.get("/", (req, res) => res.type("html").send(pageHtml));
-  const trackerJs = fs.readFileSync(path.join(SITE_DIR, "tracker.js"), "utf8");
-  app.get("/tracker.js", (req, res) => res.type("application/javascript").set("Cache-Control", "no-cache").send(trackerJs));
+  for (const file of ["tracker.js", "groups.js"]) { // the page's script files (fixed list, nothing from the request)
+    const body = fs.readFileSync(path.join(SITE_DIR, file), "utf8");
+    app.get("/" + file, (req, res) => res.type("application/javascript").set("Cache-Control", "no-cache").send(body));
+  }
   const logoPng = fs.readFileSync(path.join(SITE_DIR, "dl3-logo.png"));
   app.get("/dl3-logo.png", (req, res) => res.type("image/png").set("Cache-Control", "no-cache").send(logoPng));
   app.get("/favicon.ico", (req, res) => res.status(204).end());
