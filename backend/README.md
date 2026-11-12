@@ -73,7 +73,8 @@ Dashboard, in the Groups card, the stage chips and the tiles, and on the flag ch
 with a plain-language summary (how many investors, average fit, confidence and flag mix) and the investors in it.
 Each flag has a **Fix** button that opens a small form for exactly that problem, for example adding a contact, a
 source date, a deal, an introduction path or a new follow-up date. Fixes are saved to the database, and the investor
-leaves the group when its flag is gone. The list of flags and their fixes lives in `sites/investor-crm/groups.js`.
+leaves the group when its flag is gone. The same flags and Fix buttons appear on each investor's own page. A contact
+needs a name and an email or a LinkedIn link (a `linkedin.com` address only); contacts show as links on the investor's page. The list of flags and their fixes lives in `sites/investor-crm/groups.js`.
 
 ## Run it on a computer with Postgres
 

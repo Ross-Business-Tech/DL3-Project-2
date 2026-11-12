@@ -312,10 +312,10 @@ function parseSources(text) {
   return lines(text).map((l, k) => { const p = l.split("|").map(x => x.trim()); return { id: "S" + (k + 1), label: p[0] || "Source", url: p[1] || "", accessed: p[2] || "", published: p[3] || null }; });
 }
 function parseDM(text) {
-  return lines(text).map(l => { const p = l.split("|").map(x => x.trim()); return { name: p[0] || "Unnamed", title: p[1] || "", src: "" }; });
+  return lines(text).map(l => { const p = l.split("|").map(x => x.trim()); return { name: p[0] || "Unnamed", title: p[1] || "", email: p[2] || "", linkedin: p[3] || "", src: "" }; });
 }
 function sourcesText(i) { return i.sources.map(s => [s.label, s.url, s.accessed, s.published || ""].join(" | ")).join("\n"); }
-function dmText(i) { return i.decisionMakers.map(d => [d.name, d.title].join(" | ")).join("\n"); }
+function dmText(i) { return i.decisionMakers.map(d => [d.name, d.title, d.email || "", d.linkedin || ""].join(" | ")).join("\n"); }
 function toRec(i) {
   const sc = i.scores || {};
   return {
@@ -457,7 +457,7 @@ async function exportCsv() {
       i.scores.chicago, i.scores.mf, i.scores.check, i.scores.strategy, i.scores.evidence, i.scores.capital, f.t, f.capped ? "yes" : "no", conf(i),
       i.review === "pending" ? "pending" : "confirmed", i.stage, i.owner, i.approval ? i.approval.by + " " + i.approval.date : "none", i.next,
       flags(i).join("; "), i.sources.map(s => `${s.label} ${s.url} (${s.published || "undated"})`).join(" ; "), i.deals.join(" ; "),
-      i.decisionMakers.map(d => d.name + (d.title ? ", " + d.title : "")).join(" ; "), i.notes,
+      i.decisionMakers.map(d => [d.name, d.title, d.email, d.linkedin].filter(Boolean).join(", ")).join(" ; "), i.notes,
       i.aiStatus || "", (i.aiSummary || "").replace(/\n/g, " "), (i.aiMissing || "").replace(/\n/g, " "), i.suppressed ? "yes" : "no"];
   });
   const csv = "﻿" + [head.join(","), ...rows.map(r => r.map(csvCell).join(","))].join("\r\n");
@@ -648,7 +648,7 @@ function detail(i) {
     if (rv.hidden) rel += (rel ? "<br>" : "") + `<span class="muted">${rv.hidden} introduction path(s) restricted.</span>`;
   }
   const src = table(["ID", "Source", "URL", "Accessed", "Published"], i.sources.map(s => [s.id, esc(s.label), esc(s.url), esc(s.accessed), s.published || '<span class="flag">missing (flagged)</span>']));
-  const dms = i.decisionMakers.length ? i.decisionMakers.map(d => `${esc(d.name)}, ${esc(d.title)}`).join("<br>") : '<span class="flag">None verified (flagged)</span>';
+  const dms = i.decisionMakers.length ? i.decisionMakers.map(contactHtml).join("<br>") : '<span class="flag">None verified (flagged)</span>';
   const hist = i.history.slice(0, 10).map(h => `${h.date} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
   const pending = i.review === "pending";
   const confirmBtn = pending && canE ? `<button class="primary" onclick="confirmRecord('${i.id}')">Confirm record</button>` : "";
@@ -672,7 +672,7 @@ function detail(i) {
     </div>
     <div style="margin-top:8px"><label>Strategy<br><input id="d_strategy" value="${esc(i.strategy)}" style="width:100%"></label></div>
     <div style="margin-top:8px"><label>Sources, one per line: label | link | date accessed | date published<br><textarea id="d_sources" rows="3" style="width:100%">${esc(sourcesText(i))}</textarea></label></div>
-    <div style="margin-top:8px"><label>Contacts, one per line: name | title (firm contacts only)<br><textarea id="d_dm" rows="2" style="width:100%">${esc(dmText(i))}</textarea></label></div>
+    <div style="margin-top:8px"><label>Contacts, one per line: name | title | email | LinkedIn link<br><textarea id="d_dm" rows="2" style="width:100%">${esc(dmText(i))}</textarea></label></div>
     <div style="margin-top:8px"><label>Prior deals, one per line<br><textarea id="d_deals" rows="2" style="width:100%">${esc(i.deals.join("\n"))}</textarea></label></div>
     <div class="row" style="margin-top:8px">
       <label>Stage <select id="d_stage">${STAGES.map(s => `<option ${s === i.stage ? "selected" : ""}>${s}</option>`).join("")}</select></label>
@@ -695,7 +695,7 @@ function detail(i) {
     <div><strong>Contacts</strong><br>${dms}</div>
     <div style="margin-top:8px"><strong>Firm links</strong><br>${[i.website, i.linkedin].filter(Boolean).map(linkOrText).join("<br>") || "none recorded"}${i.contactEmail ? "<br>" + esc(i.contactEmail) : ""}</div>
     ${aiBlock}
-    <div style="margin-top:8px"><strong>Flags</strong><br>${flagChips(i) || "None"}</div>
+    <div style="margin-top:8px"><strong>Flags</strong> <span class="muted">(press Fix to resolve one)</span>${flagFixRows(i, -1)}</div>
     <h2>Scores</h2>
     <div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     <h2>Sources</h2>

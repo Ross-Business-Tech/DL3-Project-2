@@ -15,6 +15,24 @@ const iso = d => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d));
 const invById = id => INV.find(x => x.id === id);
 const dateIn = (id, def) => `<input type="date" id="${id}" value="${esc(def || "")}">`;
 
+/* ---------- Contacts: an email and/or a LinkedIn link ---------- */
+const cleanText = (v, n) => String(v || "").replace(/[|\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
+const validEmail = e => /^[^\s@<>"'|]+@[^\s@<>"'|]+\.[^\s@<>"'|]+$/.test(e);
+function cleanLinkedIn(raw) { // https linkedin.com address only, or ""
+  let u = raw.trim();
+  if (/^(www\.)?linkedin\.com\//i.test(u)) u = "https://" + u;
+  try {
+    const x = new URL(u);
+    return x.protocol === "https:" && /(^|\.)linkedin\.com$/i.test(x.hostname) && /^\/(in|company|pub)\//i.test(x.pathname) ? x.href : "";
+  } catch { return ""; }
+}
+function contactHtml(d) {
+  const links = [];
+  if (d.email && validEmail(d.email)) links.push(`<a href="mailto:${esc(d.email)}">${esc(d.email)}</a>`);
+  if (d.linkedin && cleanLinkedIn(d.linkedin)) links.push(`<a href="${esc(cleanLinkedIn(d.linkedin))}" target="_blank" rel="noopener noreferrer">LinkedIn</a>`);
+  return esc(d.name) + (d.title ? ", " + esc(d.title) : "") + (links.length ? " · " + links.join(" · ") : "");
+}
+
 const FLAG_CATALOG = [
   { key: "pending", label: "Pending review: confirm before use", test: i => i.review === "pending",
     help: "A person has not checked this record yet. Read the details and sources, correct anything wrong, then confirm it so it counts in the ranking.",
@@ -29,13 +47,17 @@ const FLAG_CATALOG = [
     apply: i => { i.type = val("fx1"); return { msg: "type set to " + i.type }; } },
 
   { key: "contact", label: "Contact missing", test: i => !i.decisionMakers.length,
-    help: "Add a person or contact at the firm who can be approached, with their role.",
+    help: "Add a person at the firm, with their role and an email or a LinkedIn link, so the team can reach them.",
     save: "Add contact",
-    form: () => `<div class="formgrid"><label>Name<input id="fx1" placeholder="Name of the contact"></label><label>Title<input id="fx2" placeholder="e.g. Head of acquisitions"></label></div>`,
+    form: () => `<div class="formgrid"><label>Name<input id="fx1" placeholder="Name of the contact"></label><label>Title<input id="fx2" placeholder="e.g. Head of acquisitions"></label><label>Email<input id="fx3" type="email" placeholder="name@firm.com"></label><label>LinkedIn link<input id="fx4" placeholder="https://www.linkedin.com/in/..."></label></div><div class="muted" style="margin-top:4px">Add an email, a LinkedIn link, or both.</div>`,
     apply: i => {
-      const name = val("fx1").trim().slice(0, 160), title = val("fx2").trim().slice(0, 160);
+      const name = cleanText(val("fx1"), 160), title = cleanText(val("fx2"), 160), emailRaw = cleanText(val("fx3"), 160), liRaw = cleanText(val("fx4"), 300);
       if (!name) return { error: "Enter the contact's name." };
-      i.decisionMakers.push({ name, title, src: "" }); return { msg: "contact added" };
+      if (!emailRaw && !liRaw) return { error: "Add an email or a LinkedIn link so the contact can be reached." };
+      let email = "", linkedin = "";
+      if (emailRaw) { if (!validEmail(emailRaw)) return { error: "That email address does not look right." }; email = emailRaw; }
+      if (liRaw) { linkedin = cleanLinkedIn(liRaw); if (!linkedin) return { error: "The LinkedIn link must be a linkedin.com address, such as https://www.linkedin.com/in/name." }; }
+      i.decisionMakers.push({ name, title, email, linkedin, src: "" }); return { msg: "contact added" };
     } },
 
   { key: "srcdate", label: "Unverified source date", test: i => i.sources.some(s => !s.published),
@@ -162,30 +184,37 @@ function vGroup() {
     <h2 style="margin-top:0">${esc(groupTitle(g))}</h2>${summary}${help}<h2>Investors in this group</h2>${cards}`;
 }
 
-function groupCard(i, g) {
-  const mine = FLAG_CATALOG.map((f, k) => ({ f, k })).filter(x => x.f.test(i));
+/* An investor's flags, each with a Fix button that opens its form. hereIdx highlights one flag. */
+function flagFixRows(i, hereIdx) {
   const f0 = S.fix && S.fix.id === i.id ? S.fix.k : -1;
-  const rows = mine.map(({ f, k }) => {
-    const here = g.kind === "flag" && g.value === k;
-    const open = f0 === k;
+  return FLAG_CATALOG.map((f, k) => ({ f, k })).filter(x => x.f.test(i)).map(({ f, k }) => {
+    const here = hereIdx === k, open = f0 === k;
     const panel = open ? `<div class="fixbox"><div class="muted" style="margin-bottom:6px">${esc(f.help)}</div>${f.form(i)}
+      <div id="fixerr" class="bad" role="alert" style="margin-top:6px"></div>
       <div class="row" style="margin-top:8px"><button class="primary" onclick="fixDo('${esc(i.id)}',${k})">${esc(f.save)}</button><button onclick="toggleFix('${esc(i.id)}',${k})">Cancel</button></div></div>` : "";
     return `<div class="flagrow"><span class="${here ? "" : "muted"}">${here ? "<strong>" + esc(f.label) + "</strong>" : esc(f.label)}</span>
       <button onclick="toggleFix('${esc(i.id)}',${k})">${open ? "Close" : "Fix"}</button></div>${panel}`;
   }).join("") || `<div class="muted">No flags.</div>`;
+}
+
+function groupCard(i, g) {
   return `<div class="card"><div class="row" style="justify-content:space-between">
       <strong><a href="#" onclick="go('Prospects');selectInv('${esc(i.id)}');return false">${esc(i.name)}</a></strong>
       <span class="muted">Fit ${fit(i).t} · ${esc(conf(i))} confidence · ${esc(i.stage)} · ${esc(i.type)}</span></div>
-      <div style="margin-top:6px">${rows}</div></div>`;
+      <div style="margin-top:6px">${flagFixRows(i, g.kind === "flag" ? g.value : -1)}</div></div>`;
 }
 
 function toggleFix(id, k) { S.fix = S.fix && S.fix.id === id && S.fix.k === k ? null : { id, k }; render(); }
+function fixError(msg) {
+  const el = document.getElementById("fixerr");
+  if (el) { el.textContent = msg; el.scrollIntoView({ block: "nearest" }); } else { S.msg = msg; render(); }
+}
 async function fixDo(id, k) {
   const i = invById(id), f = FLAG_CATALOG[k];
   if (!i) return;
-  if (!can("edit")) { S.msg = "Your role cannot edit records."; render(); return; }
+  if (!can("edit")) { fixError("Your role cannot edit records."); return; }
   const r = f.apply(i);
-  if (r.error) { S.msg = r.error; render(); return; }
+  if (r.error) { fixError(r.error); return; }
   i.history.unshift({ date: todayStr(), role: S.role, field: "flag: " + f.label, from: "flagged", to: r.msg });
   log("Fixed flag: " + f.label, i.name);
   S.fix = null;
