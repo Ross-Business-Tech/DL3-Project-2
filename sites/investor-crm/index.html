@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1b6b60">
+<meta name="theme-color" content="#ffffff">
 <title>DL3 Investor CRM - Pilot Example</title>
 <style>
-:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f3f6f5;--surface:#ffffff;--text:#10201d;--muted:#58665f;--border:#dee1e2;--accent:#1f7a6e;--on-accent:#ffffff;--brand:#1b6b60;--brand-text:#ffffff;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#1d6b45;--warn:#8a5a00;--bad:#9b2226;--chip:#e3eeec;color-scheme:light;--meta:#1b6b60}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0e1b19;--surface:#152724;--text:#e6efed;--muted:#9fb3ae;--border:#2a3f3b;--accent:#3fd0bf;--on-accent:#06201c;--brand:#0b2a26;--brand-text:#e6efed;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#1d3531;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#0e1b19;--surface:#152724;--text:#e6efed;--muted:#9fb3ae;--border:#2a3f3b;--accent:#3fd0bf;--on-accent:#06201c;--brand:#0b2a26;--brand-text:#e6efed;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#1d3531;color-scheme:dark}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#ffffff;--surface:#ffffff;--card-bg:rgba(255,255,255,.62);--mark:.07;--text:#10201d;--muted:#58665f;--border:#dee1e2;--accent:#1f7a6e;--on-accent:#ffffff;--brand:#ffffff;--brand-text:#10201d;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#1d6b45;--warn:#8a5a00;--bad:#9b2226;--chip:#e3eeec;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0e1b19;--surface:#152724;--card-bg:rgba(21,39,36,.8);--mark:.05;--text:#e6efed;--muted:#9fb3ae;--border:#2a3f3b;--accent:#3fd0bf;--on-accent:#06201c;--brand:#0b2a26;--brand-text:#e6efed;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#1d3531;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1b19;--surface:#152724;--card-bg:rgba(21,39,36,.8);--mark:.05;--text:#e6efed;--muted:#9fb3ae;--border:#2a3f3b;--accent:#3fd0bf;--on-accent:#06201c;--brand:#0b2a26;--brand-text:#e6efed;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#7fc79f;--warn:#e7b35c;--bad:#f09a9e;--chip:#1d3531;color-scheme:dark}
 body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
 header{padding:12px 18px;border-bottom:3px solid var(--brand-line);background:var(--brand);color:var(--brand-text);position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 h1{font-size:16px;margin:0}
 h2{font-size:15px;margin:14px 0 8px}
 nav{display:flex;gap:6px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--surface)}
 main{padding:14px 18px;max-width:1200px;margin:0 auto}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin:0 0 12px}
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin:0 0 12px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
 .metric .v{font-size:22px;font-weight:600}
 .metric .l{color:var(--muted);font-size:12px}
@@ -34,7 +34,9 @@ button.primary,nav button.primary{background:var(--accent);color:var(--on-accent
 a{color:var(--accent)}
 button:disabled{opacity:.45;cursor:not-allowed}
 .notice{padding:8px 10px;border-radius:6px;background:var(--chip);margin:0 0 12px}
-header .disclaimer{color:var(--brand-text);opacity:.85}
+header .disclaimer{color:var(--muted)}
+header h1{color:var(--accent);font-size:18px}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:url("dl3-logo.png") center 55%/min(78vmin,620px) no-repeat;opacity:var(--mark)}
 .disclaimer{font-size:12px;color:var(--muted)}
 .gauge{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .gbar{display:inline-block;width:56px;height:7px;border-radius:4px;background:var(--chip);overflow:hidden}

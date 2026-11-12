@@ -174,6 +174,8 @@ export function createApp(pool) {
   app.get("/", (req, res) => res.type("html").send(pageHtml));
   const trackerJs = fs.readFileSync(path.join(SITE_DIR, "tracker.js"), "utf8");
   app.get("/tracker.js", (req, res) => res.type("application/javascript").set("Cache-Control", "no-cache").send(trackerJs));
+  const logoPng = fs.readFileSync(path.join(SITE_DIR, "dl3-logo.png"));
+  app.get("/dl3-logo.png", (req, res) => res.type("image/png").set("Cache-Control", "public, max-age=86400").send(logoPng));
   app.get("/favicon.ico", (req, res) => res.status(204).end());
   app.get("/healthz", async (req, res) => {
     try { await pool.query("select 1"); res.type("text").send("ok"); } catch { res.status(503).type("text").send("database unavailable"); }
