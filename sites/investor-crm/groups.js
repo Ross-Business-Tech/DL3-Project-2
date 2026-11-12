@@ -34,19 +34,19 @@ function contactHtml(d) {
 }
 
 const FLAG_CATALOG = [
-  { key: "pending", label: "Pending review: confirm before use", test: i => i.review === "pending",
-    help: "A person has not checked this record yet. Read the details and sources, correct anything wrong, then confirm it so it counts in the ranking.",
-    save: "Confirm record",
+  { key: "pending", label: "Details not confirmed", test: i => i.review === "pending",
+    help: "A person has not checked these details yet. Read the details and sources, correct anything wrong, then confirm them so the investor counts in the ranking.",
+    save: "Confirm details",
     form: () => `<div class="muted">Confirming means a person has checked the details and sources.</div>`,
-    apply: i => { i.review = "approved"; return { msg: "record confirmed" }; } },
+    apply: i => { i.review = "approved"; return { msg: "details confirmed" }; } },
 
-  { key: "type", label: "Investor type not confirmed", test: i => i.type === "Unclassified",
+  { key: "type", label: "Investor type unknown", test: i => i.type === "Unclassified",
     help: "Choose which kind of investor this is: a family office, an institution, or a qualified purchaser.",
     save: "Save type",
     form: i => `<label>Investor type <select id="fx1">${TYPES.filter(t => t !== "Unclassified").map(t => `<option>${esc(t)}</option>`).join("")}</select></label>`,
     apply: i => { i.type = val("fx1"); return { msg: "type set to " + i.type }; } },
 
-  { key: "contact", label: "Contact missing", test: i => !i.decisionMakers.length,
+  { key: "contact", label: "No contact yet", test: i => !i.decisionMakers.length,
     help: "Add a person at the firm, with their role and an email or a LinkedIn link, so the team can reach them.",
     save: "Add contact",
     form: () => `<div class="formgrid"><label>Name<input id="fx1" placeholder="Name of the contact"></label><label>Title<input id="fx2" placeholder="e.g. Head of acquisitions"></label><label>Email<input id="fx3" type="email" placeholder="name@firm.com"></label><label>LinkedIn link<input id="fx4" placeholder="https://www.linkedin.com/in/..."></label></div><div class="muted" style="margin-top:4px">Add an email, a LinkedIn link, or both.</div>`,
@@ -60,7 +60,7 @@ const FLAG_CATALOG = [
       i.decisionMakers.push({ name, title, email, linkedin, src: "" }); return { msg: "contact added" };
     } },
 
-  { key: "srcdate", label: "Unverified source date", test: i => i.sources.some(s => !s.published),
+  { key: "srcdate", label: "Source date missing", test: i => i.sources.some(s => !s.published),
     help: "Some sources have no publication date. Open each source, find the date it was published, and enter it.",
     save: "Save dates",
     form: i => i.sources.map((s, k) => s.published ? "" : `<div class="row" style="margin:4px 0"><span style="min-width:200px">${esc(s.label)}${s.url ? ` <a href="${/^https:\/\//.test(s.url) ? esc(s.url) : "#"}" target="_blank" rel="noopener noreferrer">open</a>` : ""}</span>${dateIn("fx_d" + k)}</div>`).join(""),
@@ -70,7 +70,7 @@ const FLAG_CATALOG = [
       return n ? { msg: n + " source date(s) saved" } : { error: "Enter at least one date." };
     } },
 
-  { key: "lowconf", label: "Needs human review", test: i => conf(i) === "Low",
+  { key: "lowconf", label: "Low confidence", test: i => conf(i) === "Low",
     help: "Confidence is Low because the sources are self-reported, undated, or missing. Add a dated source (or set the dates) to raise it.",
     save: "Add source",
     form: i => `<div class="formgrid"><label>Source name<input id="fx1" placeholder="e.g. The Real Deal"></label><label>Link (https)<input id="fx2" placeholder="https://"></label><label>Date published${dateIn("fx3")}</label></div>${i.selfReported ? `<label style="margin-top:6px"><input type="checkbox" id="fx4"> These details are not self-reported (checked elsewhere)</label>` : ""}`,
@@ -85,8 +85,8 @@ const FLAG_CATALOG = [
       return msg.length ? { msg: msg.join(" and ") } : { error: "Add a source, or tick the box if it applies." };
     } },
 
-  { key: "capped", label: "Score capped at 60 (no verified deals)", test: i => fit(i).capped,
-    help: "With no verified deals the fit score is held at 60. Add a deal this firm really did, and give the evidence score it deserves.",
+  { key: "capped", label: "No verified deals", test: i => fit(i).capped,
+    help: "No verified deals are recorded, so the fit score is held at 60. Add a deal this firm really did, and give the evidence score it deserves.",
     save: "Add deal",
     form: () => `<div class="formgrid"><label class="wide">Deal (what, where, when)<input id="fx1" placeholder="e.g. Bought a 120-unit building in Lakeview, Mar 2026"></label><label>Evidence score (1 to 5)<select id="fx2">${[1, 2, 3, 4, 5].map(n => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select></label></div><div class="muted">Also add the source for this deal under the record's Sources.</div>`,
     apply: i => {
@@ -95,7 +95,7 @@ const FLAG_CATALOG = [
       i.deals.push(deal); i.scores.evidence = +val("fx2"); return { msg: "deal added, evidence score " + i.scores.evidence };
     } },
 
-  { key: "inactive", label: "No activity in 30+ days", test: i => inactive(i),
+  { key: "inactive", label: "No contact in 30+ days", test: i => inactive(i),
     help: "There has been no contact for over a month. Log the real contact in the Outreach tracker, or update the last contact date if it happened elsewhere.",
     save: "Update last contact",
     form: i => `<label>Date of the last real contact${dateIn("fx1", todayStr())}</label> <button type="button" onclick="trackerFor('${esc(i.id)}')">Log it in the Outreach tracker instead</button>`,
@@ -107,13 +107,13 @@ const FLAG_CATALOG = [
     form: i => `<label>New follow-up date${dateIn("fx1", addDays(todayStr(), 7))}</label> <button type="button" onclick="clearNext('${esc(i.id)}')">No follow-up needed</button>`,
     apply: i => { const d = val("fx1"); if (!iso(d)) return { error: "Enter a date." }; i.next = d; return { msg: "follow-up set for " + d }; } },
 
-  { key: "approval", label: "Approval record missing", test: i => i.stage === "contacted" && !i.approval,
-    help: "This investor is marked contacted but outreach was never approved. An Approver must approve it.",
+  { key: "approval", label: "Contacted without approval", test: i => i.stage === "contacted" && !i.approval,
+    help: "This investor is marked contacted but outreach was never approved. Approve it, under your name, to fix the record.",
     save: "Approve outreach",
-    form: () => can("approve") ? `<div class="muted">Approving records that outreach was authorized.</div>` : `<div class="flag">Only an Approver can do this. Switch "Viewing as" to Approver, or ask the person who holds that role.</div>`,
-    apply: i => { if (!can("approve")) return { error: "Only an Approver can approve outreach." }; i.approval = { by: "Approver", date: todayStr() }; return { msg: "outreach approved" }; } },
+    form: () => S.who ? `<div class="muted">This records that outreach was approved by ${esc(S.who)}.</div>` : `<div class="flag">Type your name at the top of the page first, so the approval shows who gave it.</div>`,
+    apply: i => { if (!S.who) return { error: "Type your name at the top of the page first, so the approval shows who gave it." }; i.approval = { by: S.who, date: todayStr() }; return { msg: "outreach approved" }; } },
 
-  { key: "intro", label: "No introduction path recorded", test: i => !i.rel.length,
+  { key: "intro", label: "No introduction path", test: i => !i.rel.length,
     help: "Record who at DL3 knows someone at this firm, and how, so the team can ask for a warm introduction.",
     save: "Add path",
     form: () => `<div class="formgrid"><label>Who at DL3 knows them<input id="fx1" placeholder="Team member"></label><label>How they know them<input id="fx2" placeholder="e.g. former colleague of the principal"></label><label>Date confirmed${dateIn("fx3", todayStr())}</label></div>`,
@@ -123,7 +123,7 @@ const FLAG_CATALOG = [
       i.rel.push({ holder, knows, confirmed: iso(confirmed) ? confirmed : todayStr() }); return { msg: "introduction path added" };
     } },
 
-  { key: "suppressed", label: "Suppressed (removal request)", test: i => i.suppressed,
+  { key: "suppressed", label: "Asked to be removed", test: i => i.suppressed,
     help: "This investor asked to be removed. Only lift the suppression if that request was withdrawn.",
     save: "Lift suppression",
     form: () => `<label><input type="checkbox" id="fx1"> The removal request was withdrawn</label>`,
@@ -138,10 +138,10 @@ function openGroup(kind, value) {
   render(); window.scrollTo(0, 0);
 }
 function groupTitle(g) {
-  return g.kind === "flag" ? "Flag: " + FLAG_CATALOG[g.value].label : g.kind === "stage" ? "Stage: " + g.value : g.kind === "type" ? "Type: " + g.value : "Confidence: " + g.value;
+  return g.kind === "any" ? "Investors with something to fix" : g.kind === "flag" ? "Flag: " + FLAG_CATALOG[g.value].label : g.kind === "stage" ? "Stage: " + g.value : g.kind === "type" ? "Type: " + g.value : "Confidence: " + g.value;
 }
 function groupMembers(g) {
-  const test = g.kind === "flag" ? i => FLAG_CATALOG[g.value].test(i) : g.kind === "stage" ? i => i.stage === g.value : g.kind === "type" ? i => i.type === g.value : i => conf(i) === g.value;
+  const test = g.kind === "any" ? i => flags(i).length > 0 : g.kind === "flag" ? i => FLAG_CATALOG[g.value].test(i) : g.kind === "stage" ? i => i.stage === g.value : g.kind === "type" ? i => i.type === g.value : i => conf(i) === g.value;
   return INV.filter(test).sort((a, b) => fit(b).t - fit(a).t);
 }
 const gchip = (label, count, kind, value) => `<button type="button" class="chip linkchip" onclick="openGroup('${kind}',${typeof value === "number" ? value : "'" + esc(value) + "'"})">${esc(label)}: ${count}</button>`;
@@ -215,8 +215,7 @@ async function fixDo(id, k) {
   if (!can("edit")) { fixError("Your role cannot edit records."); return; }
   const r = f.apply(i);
   if (r.error) { fixError(r.error); return; }
-  i.history.unshift({ date: todayStr(), role: S.role, field: "flag: " + f.label, from: "flagged", to: r.msg });
-  log("Fixed flag: " + f.label, i.name);
+  i.history.unshift({ date: todayStr(), role: who(), field: "flag: " + f.label, from: "flagged", to: r.msg });
   S.fix = null;
   S.msg = await saveRemote(i, "Saved for " + i.name + ": " + r.msg + ".");
   render();
@@ -238,8 +237,10 @@ function groupsCard() {
   const flagChips_ = FLAG_CATALOG.map((f, k) => [f.label, INV.filter(f.test).length, k]).filter(x => x[1] > 0).map(([l, n, k]) => gchip(l, n, "flag", k)).join("") || '<span class="muted">No flags. Everything is clean.</span>';
   const types = TYPES.map(t => [t, INV.filter(i => i.type === t).length]).filter(x => x[1] > 0).map(([t, n]) => gchip(t, n, "type", t)).join("");
   const confs = ["High", "Medium", "Low"].map(c => gchip(c, INV.filter(i => conf(i) === c).length, "conf", c)).join("");
+  const stages = STAGES.map(st => [st, INV.filter(i => i.stage === st).length]).filter(x => x[1] > 0).map(([st, n]) => gchip(st, n, "stage", st)).join("");
   return `<h2>Groups</h2><div class="card"><div class="muted" style="margin-bottom:6px">Click a group to see a summary and fix its flags.</div>
     <div><strong>Flags</strong><br>${flagChips_}</div>
     <div style="margin-top:8px"><strong>Investor type</strong><br>${types || '<span class="muted">none</span>'}</div>
-    <div style="margin-top:8px"><strong>Confidence</strong><br>${confs}</div></div>`;
+    <div style="margin-top:8px"><strong>Confidence</strong><br>${confs}</div>
+    <div style="margin-top:8px"><strong>Stage</strong><br>${stages || '<span class="muted">none</span>'}</div></div>`;
 }

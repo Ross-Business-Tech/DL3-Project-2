@@ -173,11 +173,10 @@ function prefillFrom(key) {
   const f = document.getElementById("logForm"); if (f) f.scrollIntoView({ behavior: "smooth" });
 }
 async function logOutreach() {
-  if (!can("log")) { S.msg = "Your role cannot log outreach."; render(); return; }
-  const invKey = val("o_inv"), i = INV.find(x => (x.rid || x.id) === invKey);
+    const invKey = val("o_inv"), i = INV.find(x => (x.rid || x.id) === invKey);
   const o = {
     investor_rid: invKey, investor_name: i ? i.name : "", project: val("o_project"), channel: val("o_channel"),
-    direction: val("o_dir"), touch_date: val("o_date") || todayStr(), logged_by: val("o_by").trim() || S.role,
+    direction: val("o_dir"), touch_date: val("o_date") || todayStr(), logged_by: val("o_by").trim() || who(),
     interest: val("o_interest"), amount_m: +val("o_amount") || 0, summary: val("o_sum").trim(),
     next_step: val("o_next").trim(), follow_up: val("o_follow"), follow_up_done: false
   };
@@ -185,7 +184,7 @@ async function logOutreach() {
   if (!o.project) { S.msg = "Pick the project this outreach is for. Add a project first if the list is empty."; render(); return; }
   if (!o.summary) { S.msg = "Add a short summary of what happened."; render(); return; }
   if (o.direction === "out" && !i.approval) {
-    S.msg = i.name + " has no outreach approval yet. An Approver must approve outreach (Pipeline and approvals tab) before DL3 reaches out. Replies from the investor can still be logged.";
+    S.msg = i.name + " has not been approved for outreach yet. Approve it first (Pipeline & approvals tab) before DL3 reaches out. Replies from the investor can still be logged.";
     render(); return;
   }
   if (o.interest === "Passed") o.follow_up = "";
@@ -197,9 +196,7 @@ async function logOutreach() {
   if (o.follow_up) i.next = o.follow_up;
   const stageFor = o.interest === "Committed" ? "committed" : o.direction === "meeting" ? "meeting scheduled" : i.approval ? "contacted" : i.stage;
   const order = ["identified", "researched", "scored", "reviewed", "approved for outreach", "contacted", "meeting scheduled", "in diligence", "committed"];
-  if (order.indexOf(stageFor) > order.indexOf(i.stage)) { i.history.unshift({ date: o.touch_date, role: S.role, field: "stage", from: i.stage, to: stageFor }); i.stage = stageFor; }
-  i.acts.unshift({ type: o.channel, date: o.touch_date, person: o.logged_by, summary: o.summary + " (" + o.project + ", interest: " + o.interest + ")", next: o.next_step });
-  log("Logged outreach: " + i.name, o.project + ", " + o.channel + ", interest " + o.interest);
+  if (order.indexOf(stageFor) > order.indexOf(i.stage)) { i.history.unshift({ date: o.touch_date, role: who(), field: "stage", from: i.stage, to: stageFor }); i.stage = stageFor; }
   T.prefill = null;
   S.msg = await trySave(async () => {
     await saveRec(outCol(), o, outFields(o));
@@ -251,7 +248,6 @@ async function addProject() {
   if (T.projects.some(p => p.name.toLowerCase() === name.toLowerCase())) { S.msg = "There is already a project with that name."; render(); return; }
   const p = { name, target_m: target, summary: val("p_sum").trim(), active: true };
   T.projects.push(p);
-  log("Added project: " + name, "Target " + money(target));
   S.msg = await trySave(() => saveRec(projCol(), p, p), "Added project " + name + ".");
   render();
 }
@@ -305,7 +301,7 @@ function vTracker() {
     .map(i => { const k = i.rid || i.id; return `<option value="${esc(k)}" ${k === pf.inv ? "selected" : ""}>${esc(i.name)}${i.approval ? "" : " (not approved yet)"}</option>`; }).join("");
   const projOpts = T.projects.filter(p => p.active !== false).map(p => `<option ${p.name === (pf.project || T.project) ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   const lv0 = interestOf(pf.interest || "No reply yet");
-  const form = can("log") ? `<div class="card" id="logForm"><h2>Log outreach</h2>
+  const form = `<div class="card" id="logForm"><h2>Log outreach</h2>
     <div class="formgrid">
       <label>Investor<select id="o_inv">${invOpts}</select></label>
       <label>Project<select id="o_project">${projOpts || '<option value="">Add a project first</option>'}</select></label>
@@ -321,7 +317,7 @@ function vTracker() {
     </div>
     <div class="muted" id="o_tip" style="margin-top:6px">${esc(lv0.tip)}${lv0.days ? " Suggested follow-up in " + lv0.days + " day(s)." : ""}</div>
     <div class="row" style="margin-top:10px"><button class="primary" onclick="logOutreach()">Save outreach</button>${T.prefill ? '<button onclick="T.prefill=null;render()">Clear</button>' : ""}</div>
-  </div>` : `<div class="card muted">Your role cannot log outreach.</div>`;
+  </div>`;
 
   // 3. Projects
   const projCards = T.projects.map(p => {

@@ -55,6 +55,8 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 .sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:8px 0}
 .sgrid .card{margin:0;padding:8px 10px}
 .sgrid .metric .v{font-size:20px}
+header input{width:170px}
+details.card>summary{cursor:pointer}
 .linkchip{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--border);color:inherit}
 .linkchip:hover{border-color:var(--logo-teal)}
 .flagrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 0;border-top:1px solid var(--border)}
@@ -71,29 +73,16 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
     <div class="disclaimer">All investors come from public research. Individuals are not named. Changes are saved to the shared list.</div>
   </div>
   <div class="row">
-    <label>Viewing as
-      <select id="roleSel" onchange="setRole(this.value)">
-        <option>Admin</option>
-        <option>Editor</option>
-        <option>Approver</option>
-        <option>Viewer</option>
-        <option>Relationship Holder A</option>
-        <option>Relationship Holder B</option>
-      </select>
-    </label>
+    <label>Your name <input id="whoIn" placeholder="Shown on changes you make" maxlength="60" oninput="setWho(this.value)"></label>
   </div>
 </header>
 <nav id="nav">
   <button data-tab="Dashboard" onclick="go('Dashboard')">Dashboard</button>
   <button data-tab="Tracker" onclick="go('Tracker')">Outreach tracker</button>
-  <button data-tab="Prospects" onclick="go('Prospects')">Prospects</button>
-  <button data-tab="Scoring" onclick="go('Scoring')">Scoring</button>
+  <button data-tab="Prospects" onclick="go('Prospects')">Investors</button>
   <button data-tab="Outreach" onclick="go('Outreach')">Pipeline &amp; approvals</button>
-  <button data-tab="Activity" onclick="go('Activity')">Activity</button>
   <button data-tab="Import" onclick="go('Import')">Import</button>
-  <button data-tab="Audit" onclick="go('Audit')">Audit</button>
-  <button data-tab="Admin" onclick="go('Admin')">Admin</button>
-  <button data-tab="Requirements" onclick="go('Requirements')">Requirements check</button>
+  <button data-tab="About" onclick="go('About')">About</button>
 </nav>
 <main id="app"></main>
 <script src="tracker.js?v=1"></script>
@@ -114,22 +103,17 @@ const TYPES=["Family office","Institutional","Qualified purchaser","Unclassified
 const STAGES=["identified","researched","scored","reviewed","approved for outreach","contacted","meeting scheduled","in diligence","committed","passed","archived"];
 const PRE_APPROVAL=["identified","researched","scored","reviewed"];
 const CLOSED=["committed","passed","archived"];
-const PERM={
-  edit:["Admin","Editor","Approver","Viewer","Relationship Holder A","Relationship Holder B"],
-  approve:["Approver"],
-  weights:["Admin"],
-  audit:["Admin","Approver"],
-  log:["Admin","Editor","Approver","Viewer","Relationship Holder A","Relationship Holder B"]
-};
-
 /* ---------- State ---------- */
 const S={
-  role:"Admin", tab:"Dashboard", selected:null, msg:"",
-  weights:{chicago:20,mf:20,check:20,strategy:15,evidence:15,capital:10}, wVersion:1,
-  filters:{minFit:0,conf:"",type:"",stage:""},
-  importRows:null, exportText:"",
-  audit:[{date:AS_OF,role:"Admin",action:"Pilot loaded",detail:"25 research investors"}]
+  tab:"Dashboard", selected:null, msg:"", who:"",
+  weights:{chicago:20,mf:20,check:20,strategy:15,evidence:15,capital:10},
+  filters:{minFit:0,conf:"",type:"",stage:""}
 };
+/* The person using the page types their name once; it is kept in this browser and shown on what they change. */
+try { S.who = localStorage.getItem("dl3_who") || ""; } catch (e) { S.who = ""; }
+document.getElementById("whoIn").value = S.who;
+function setWho(v) { S.who = v.trim().slice(0, 60); try { localStorage.setItem("dl3_who", S.who); } catch (e) { /* no storage: fine */ } }
+const who = () => S.who || "Team member";
 
 /* ---------- Sample data (hypothetical) ---------- */
 const SEED=[
@@ -167,13 +151,6 @@ function val(id){return document.getElementById(id).value}
 function days(a,b){return (Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/864e5}
 function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9]/g,"")}
 function findDup(name){return INV.find(x=>norm(x.name)===norm(name))}
-function log(action,detail){S.audit.unshift({date:AS_OF,role:S.role,action,detail:detail||""})}
-/* Automatic activity: system events are written to the prospect's activity log.
-   They do not update the last-contact date, so inactivity still reflects real outreach. */
-function autoLog(i,type,summary,next){
-  i.acts.unshift({type,date:AS_OF,person:S.role,summary,next:next||"",auto:true});
-}
-
 function fit(i){
   let raw=0;
   CRIT.forEach(c=>raw+=i.scores[c.k]*S.weights[c.k]/5);
@@ -204,22 +181,14 @@ function filtered(){
 }
 
 /* ---------- Permissions ---------- */
-function can(a){return PERM[a].includes(S.role)}
-function isRH(){return S.role.startsWith("Relationship Holder")}
-function canLogFor(i){return can("log")||(isRH()&&i.rel.some(r=>r.holder===S.role))}
-function seeRel(r){return ["Admin","Approver"].includes(S.role)||r.holder===S.role}
-function relView(i){const vis=i.rel.filter(seeRel);return{vis,hidden:i.rel.length-vis.length}}
+function can(){return true} // everyone on the team can edit; there is no sign-in yet
+function canLogFor(){return true}
+function relView(i){return{vis:i.rel,hidden:0}}
 
 /* ---------- Actions ---------- */
 function go(t){S.tab=t;S.msg="";render()}
-function setRole(r){S.role=r;S.msg="";document.getElementById("roleSel").value=r;render()}
 function setF(k,v){S.filters[k]=v;render()}
-function selectInv(id){
-  S.selected=id;
-  const i=INV.find(x=>x.id===id);
-  if(i&&relView(i).vis.length)log("Viewed introduction path",i.name);
-  render();
-}
+function selectInv(id){S.selected=id;render()}
 async function saveDetail(id) {
   if (!can("edit")) return;
   const i = INV.find(x => x.id === id);
@@ -237,23 +206,20 @@ async function saveDetail(id) {
   i.suppressed = document.getElementById("d_supp").checked;
   CRIT.forEach(c => i.scores[c.k] = +val("sc_" + c.k));
   if (JSON.stringify(toRec(i)) === before) { S.msg = "No changes to save."; render(); return; }
-  log("Updated " + i.name, "record edited by " + S.role);
-  i.history.unshift({ date: AS_OF, role: S.role, field: "record", from: oldName, to: i.name });
+  i.history.unshift({ date: AS_OF, role: who(), field: "record", from: oldName, to: i.name });
   S.msg = await saveRemote(i, "Saved changes to " + i.name + ".");
   render();
 }
 
 async function approve(id) {
-  if (!can("approve")) return;
   const i = INV.find(x => x.id === id);
-  i.approval = { by: "Approver", date: AS_OF };
+  if (!S.who) { S.msg = "Type your name at the top of the page first, so the approval shows who gave it."; render(); const w = document.getElementById("whoIn"); if (w) w.focus(); return; }
+  i.approval = { by: S.who, date: todayStr() };
   if (PRE_APPROVAL.includes(i.stage)) {
-    i.history.unshift({ date: AS_OF, role: S.role, field: "stage", from: i.stage, to: "approved for outreach" });
+    i.history.unshift({ date: todayStr(), role: who(), field: "stage", from: i.stage, to: "approved for outreach" });
     i.stage = "approved for outreach";
   }
-  log("Approved outreach: " + i.name, "Approval record created");
-  autoLog(i, "Approval", "Outreach approved; approval record created", "Begin outreach");
-  S.msg = await saveRemote(i, "Outreach approved for " + i.name + ".");
+  S.msg = await saveRemote(i, "Outreach approved for " + i.name + ", by " + S.who + ".");
   render();
 }
 
@@ -272,34 +238,11 @@ async function addProspect(andResearch) {
   const i = newInv(name, type, hq, "Manual entry");
   i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
   INV.push(i);
-  autoLog(i, "Created", "Added by " + S.role + "; waiting for review", "Check details and confirm");
-  log("Added prospect: " + name, "Manual entry");
-  S.msg = await saveRemote(i, "Added " + name + " to the review queue. Check it, then press Confirm record.");
+  S.msg = await saveRemote(i, "Added " + name + " to the review queue. Check it, then press Confirm details.");
   render();
   if (andResearch === true && i.rid) { S.selected = i.id; await runResearch(i.id); }
 }
 
-function addActivity(){
-  const i=INV.find(x=>x.id===val("a_inv"));
-  if(!i||!canLogFor(i)){S.msg="Your role cannot log activity for this prospect.";render();return}
-  const a={type:val("a_type"),date:val("a_date")||AS_OF,person:val("a_person").trim(),summary:val("a_sum").trim(),next:val("a_next").trim()};
-  if(!a.summary){S.msg="Summary is required.";render();return}
-  i.acts.unshift(a);
-  if(a.date>i.last)i.last=a.date;
-  log("Logged "+a.type+" for "+i.name,a.summary);
-  S.msg="Activity logged for "+i.name+".";
-  render();
-}
-function saveWeights(){
-  if(!can("weights"))return;
-  const w={};CRIT.forEach(c=>w[c.k]=+val("w_"+c.k));
-  const tot=Object.values(w).reduce((a,b)=>a+b,0);
-  if(tot!==100){S.msg="Weights must total 100 (currently "+tot+").";render();return}
-  S.weights=w;S.wVersion++;
-  log("Scoring weights changed","Now version "+S.wVersion);
-  S.msg="Saved scoring version "+S.wVersion+".";
-  render();
-}
 /* ---------- Shared list (here.now Site Data) ---------- */
 const COL = window.INVESTORS_API || "./.herenow/data/investors";
 async function api(method, url, body) {
@@ -377,7 +320,6 @@ async function confirmRecord(id) {
   if (!can("edit")) return;
   const i = INV.find(x => x.id === id);
   i.review = "approved";
-  log("Confirmed record: " + i.name, "Moved out of review");
   S.msg = await saveRemote(i, i.name + " is confirmed and now counts in the ranking.");
   render();
 }
@@ -575,7 +517,7 @@ function vImport() {
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Dashboard": vDash, "Prospects": vProspects, "Scoring": vScoring, "Tracker": vTracker, "Group": vGroup, "Outreach": vOutreach, "Activity": vActivity, "Import": vImport, "Audit": vAudit, "Admin": vAdmin, "Requirements": vReq };
+  const views = { "Dashboard": vDash, "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Outreach": vOutreach, "Import": vImport, "About": vAbout };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
   else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
@@ -593,34 +535,22 @@ function metric(v,l){return `<div class="card metric"><div class="v">${v}</div><
 function nameLink(i){return `<a href="#" onclick="go('Prospects');selectInv('${i.id}');return false">${esc(i.name)}</a>`}
 
 function vDash(){
-  const n=INV.length||1;
-  const meets=INV.filter(i=>fit(i).t>=FIT_THRESHOLD).length;
-  const ver=INV.filter(verifiable).length;
-  const sl=shortlist(), rq=reviewQueue(), od=INV.filter(overdue), ina=INV.filter(inactive);
-  const stages=STAGES.map(s=>`<button type="button" class="chip linkchip" onclick="openGroup('stage','${s}')">${s}: ${INV.filter(i=>i.stage===s).length}</button>`).join(" ");
+  const toConfirm=INV.filter(i=>i.review==="pending").length;
+  const needFix=INV.filter(i=>flags(i).length).length;
+  const due=followUps().filter(o=>o.follow_up<=todayStr()).length;
+  const ready=INV.filter(i=>i.stage==="approved for outreach").length;
+  const sl=shortlist();
+  const link=(n,js)=>`<a href="#" onclick="${js};return false">${n}</a>`;
   return `
   <div class="grid">
-    ${metric(INV.length,"Prospects in pilot")}
-    ${metric(Math.round(meets/n*100)+"%","Meet approved criteria (fit "+FIT_THRESHOLD+"+, threshold to confirm)")}
-    ${metric(Math.round(ver/n*100)+"%","Verifiable history and current contacts")}
-    ${metric(sl.length,"Shortlist (top 10, excludes low confidence)")}
-    ${metric(`<a href="#" onclick="openGroup('conf','Low');return false">${rq.length}</a>`,"Awaiting human review (click to open)")}
-    ${metric(`<a href="#" onclick="openGroup('flag',flagIdx('overdue'));return false">${od.length}</a>`,"Overdue follow-ups (click to open)")}
-    ${metric(`<a href="#" onclick="go('Tracker');return false">${followUps().filter(o=>o.follow_up<=todayStr()).length}</a>`,"Outreach follow-ups due now (open the Outreach tracker)")}
-    ${metric("Not measured","Time saved per qualified prospect (needs baseline)")}
+    ${metric(link(toConfirm,"openGroup('flag',flagIdx('pending'))"),"Investors to confirm")}
+    ${metric(link(needFix,"openGroup('any','')"),"Investors with something to fix")}
+    ${metric(link(due,"go('Tracker')"),"Follow-ups due")}
+    ${metric(link(ready,"openGroup('stage','approved for outreach')"),"Approved, ready to contact")}
   </div>
   ${groupsCard()}
-  <h2>Top-10 shortlist</h2>
-  <div class="card">${table(["Rank","Prospect","Fit","Confidence","Stage","Flags"],sl.map((i,k)=>[k+1,nameLink(i),fit(i).t,conf(i),esc(i.stage),flagChips(i)]))}</div>
-  <h2>Review queue (low confidence, not on shortlist)</h2>
-  <div class="card">${table(["Prospect","Fit","Reason","Flags"],rq.map(i=>[nameLink(i),fit(i).t,"Low confidence: self-reported or undated sources",flagChips(i)]))}</div>
-  <h2>Follow-up and activity alerts</h2>
-  <div class="card">${table(["Prospect","Alert","Date"],[
-    ...od.map(i=>[nameLink(i),"Follow-up overdue",i.next]),
-    ...ina.map(i=>[nameLink(i),"No activity in "+INACT_DAYS+"+ days (threshold to confirm)",i.last])
-  ])}</div>
-  <h2>Pipeline summary</h2>
-  <div class="card">${stages}</div>`;
+  <h2>Top 10 investors</h2>
+  <div class="card">${table(["Rank","Investor","Fit","Confidence","Stage","To fix"],sl.map((i,k)=>[k+1,nameLink(i),fit(i).t,conf(i),esc(i.stage),flagChips(i)]))}</div>`;
 }
 
 function vProspects(){
@@ -628,8 +558,8 @@ function vProspects(){
   const sel=(id,opts,cur,label)=>`<select onchange="setF('${id}',this.value)"><option value="">${label}</option>${opts.map(o=>`<option ${o===cur?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
   const bar=`<div class="card row"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf",["High","Medium","Low"],f.conf,"All confidence")}${sel("type",TYPES,f.type,"All types")}${sel("stage",STAGES,f.stage,"All stages")}<button onclick="exportCsv()">Export CSV</button></div>`;
   const rows=filtered().map(i=>`<tr style="cursor:pointer" onclick="selectInv('${i.id}')"><td>${esc(i.name)}</td><td>${esc(i.type)}</td><td>${fit(i).t}</td><td>${conf(i)}</td><td>${esc(i.stage)}</td><td>${esc(i.owner)}</td><td>${i.next||"none set"}</td><td>${flagChips(i)}</td></tr>`).join("");
-  const t=`<div class="card wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Fit</th><th>Confidence</th><th>Stage</th><th>Owner</th><th>Next follow-up</th><th>Flags</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="muted">No prospects match these filters</td></tr>'}</tbody></table></div>`;
-  const add=can("edit")?`<div class="card"><h2>Add prospect manually</h2><div class="row"><input id="np_name" placeholder="Name"><select id="np_type">${TYPES.filter(x=>x!=="Unclassified").map(x=>`<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="HQ"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API&&S.research&&S.research.enabled?'<button onclick="addProspect(true)">Add and research</button>':""}</div><div class="muted" style="margin-top:6px">Duplicate names are blocked.</div></div>`:"";
+  const t=`<div class="card wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Fit</th><th>Confidence</th><th>Stage</th><th>Owner</th><th>Next follow-up</th><th>To fix</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="muted">No investors match these filters</td></tr>'}</tbody></table></div>`;
+  const add=can("edit")?`<div class="card"><h2>Add an investor</h2><div class="row"><input id="np_name" placeholder="Name"><select id="np_type">${TYPES.filter(x=>x!=="Unclassified").map(x=>`<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="HQ"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API&&S.research&&S.research.enabled?'<button onclick="addProspect(true)">Add and research</button>':""}</div><div class="muted" style="margin-top:6px">Duplicate names are blocked.</div></div>`:"";
   return bar+t+add+(S.selected?detail(INV.find(x=>x.id===S.selected)):"");
 }
 
@@ -651,7 +581,7 @@ function detail(i) {
   const dms = i.decisionMakers.length ? i.decisionMakers.map(contactHtml).join("<br>") : '<span class="flag">None verified (flagged)</span>';
   const hist = i.history.slice(0, 10).map(h => `${h.date} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
   const pending = i.review === "pending";
-  const confirmBtn = pending && canE ? `<button class="primary" onclick="confirmRecord('${i.id}')">Confirm record</button>` : "";
+  const confirmBtn = pending && canE ? `<button class="primary" onclick="confirmRecord('${i.id}')">Confirm details</button>` : "";
   const ai = S.research || { enabled: false };
   const running = i.aiStatus === "running";
   const canResearch = !!(window.INVESTORS_API && ai.enabled && pending && i.rid);
@@ -709,133 +639,64 @@ function detail(i) {
   </div>`;
 }
 
-function vScoring(){
-  const rows=INV.map(i=>{const f=fit(i);return [esc(i.name),...CRIT.map(c=>i.scores[c.k]),f.t,f.capped?"Yes (cap 60)":"No",conf(i)]});
-  return `
-  <div class="card">
-    <h2>Fit scores (weights version ${S.wVersion})</h2>
-    ${table(["Prospect",...CRIT.map(c=>`${c.label} (${S.weights[c.k]})`),"Fit","Capped","Confidence"],rows)}
-  </div>
-  <div class="card">
-    <h2>How fit is calculated</h2>
-    <ul>
-      <li>Each criterion is scored 0 to 5. Points equal score times weight, divided by 5. Points total up to 100.</li>
-      <li>Anchors: 5 means strong, verified evidence. 3 means partial or indirect evidence. 1 means weak or inferred evidence. 0 means no evidence or conflicting evidence.</li>
-      <li>Cap: if evidence of relevant deals scores 0, the fit score is capped at 60 until verified deals are added.</li>
-      <li>Ranking: sorted by fit. Prospects with low confidence are sent to the review queue and do not enter the top-10 shortlist until a person reviews them.</li>
-    </ul>
-    <h2>Confidence (separate from fit)</h2>
-    <ul>
-      <li>High: two or more dated sources from the past 24 months.</li>
-      <li>Medium: at least one dated source, but fewer than two recent sources.</li>
-      <li>Low: self-reported only, or no dated sources.</li>
-    </ul>
-    <h2>Gating rules</h2>
-    <ul>
-      <li>Ineligible investor types are excluded from the pilot with the reason recorded. All sample and research examples are eligible for review.</li>
-      <li>No verifiable decision-maker: the prospect is kept and flagged "Contact missing".</li>
-      <li>Introduction paths are recorded for outreach planning and are not part of the fit score.</li>
-    </ul>
-  </div>`;
-}
-
 function vOutreach(){
   const board=STAGES.map(s=>`<div class="card" style="margin:0"><strong>${s}</strong><div style="margin-top:6px">${INV.filter(i=>i.stage===s).map(i=>`<span class="chip">${esc(i.name)}</span>`).join("")||'<span class="muted">none</span>'}</div></div>`).join("");
   const pend=INV.filter(i=>!i.approval);
-  const rows=pend.map(i=>[esc(i.name),fit(i).t,conf(i),esc(i.stage),can("approve")?`<button class="primary" onclick="approve('${i.id}')">Approve outreach</button>`:'<span class="muted">Awaiting Approver</span>']);
+  const rows=pend.map(i=>[esc(i.name),fit(i).t,conf(i),esc(i.stage),`<button class="primary" onclick="approve('${i.id}')">Approve for outreach</button>`]);
   return `
   <h2>Pipeline stages</h2>
   <div class="grid">${board}</div>
   <div class="card">
     <h2>Outreach approvals</h2>
-    ${table(["Prospect","Fit","Confidence","Stage","Action"],rows)}
-    <div class="muted" style="margin-top:8px">This tool records outreach. It does not send messages. A prospect cannot be marked contacted until an approval record exists.</div>
+    ${table(["Investor","Fit","Confidence","Stage","Action"],rows)}
+    <div class="muted" style="margin-top:8px">This tool records outreach. It does not send messages. An investor cannot be marked contacted until it has been approved for outreach.</div>
   </div>`;
 }
 
-function vActivity(){
-  const rows=INV.flatMap(i=>i.acts.map(a=>({i,a}))).sort((x,y)=>y.a.date.localeCompare(x.a.date));
-  const opts=INV.map(i=>`<option value="${i.id}">${esc(i.name)}</option>`).join("");
-  const form=(can("log")||isRH())?`
-  <div class="card">
-    <h2>Manual log (calls, meetings, emails)</h2>
-    <div class="row">
-      <select id="a_inv">${opts}</select>
-      <select id="a_type">${["Call","Email","Meeting","Introduction","Event","Research"].map(x=>`<option>${x}</option>`).join("")}</select>
-      <input type="date" id="a_date" value="${AS_OF}">
-      <input id="a_person" placeholder="Person">
-      <input id="a_sum" placeholder="Summary" size="28">
-      <input id="a_next" placeholder="Next step">
-      <button class="primary" onclick="addActivity()">Log</button>
-    </div>
-    <div class="muted" style="margin-top:6px">Relationship holders can log activity only for prospects where they hold an introduction path.</div>
-  </div>`:`<div class="card muted">Your role cannot log activity.</div>`;
-  return `<div class="card"><h2>Activity log</h2><div class="muted" style="margin-bottom:6px">Entries marked auto are written by the system from record changes. Manual entries are calls, meetings, and emails.</div>${table(["Date","Prospect","Type","Person","Summary","Next step"],rows.map(({i,a})=>[a.date,esc(i.name),esc(a.type)+(a.auto?' <span class="chip">auto</span>':""),esc(a.person),esc(a.summary),esc(a.next)]))}</div>${form}`;
-}
-
-function vAudit(){
-  if(!can("audit"))return `<div class="card muted">The audit log is visible to Admin and Approver roles only.</div>`;
-  return `<div class="card"><h2>Audit log</h2>${table(["Date","Role","Action","Detail"],S.audit.map(a=>[a.date,esc(a.role),esc(a.action),esc(a.detail)]))}</div>`;
-}
-
-function vAdmin(){
-  const perms=[
-    ["View core records","All roles"],
-    ["Add or edit records, scores, and stages","Admin, Editor"],
-    ["Approve outreach","Approver"],
-    ["Log activity","Admin, Editor, Relationship Holder (own prospects only)"],
-    ["See introduction paths","Admin and Approver see all; Relationship Holder sees own"],
-    ["View audit log","Admin, Approver"],
-    ["Change scoring weights","Admin"],
-    ["Export records","All roles; introduction paths only for Admin and Approver"]
+function vAbout(){
+  const w=CRIT.map(c=>`<tr><td>${esc(c.label)}</td><td>${S.weights[c.k]}</td></tr>`).join("");
+  const req=[
+    ["1. Purpose and scope","Research investors with the full workflow: find, review, reach out","Demonstrated"],
+    ["2. Users and roles","Everyone on the team can view and edit; approvals record who gave them","Partial: no sign-in yet"],
+    ["3. Core data","Type, HQ, contacts, strategy, check range, deals, scores, sources, owner, approval, follow-up, notes","Demonstrated"],
+    ["4. Data quality and provenance","Dated sources, confidence from source dates, flags with fixes, duplicate blocking","Demonstrated"],
+    ["5. Scoring and ranking","Weighted criteria with anchors, deal cap, ranked list with filters, review step before an investor counts","Demonstrated"],
+    ["6. Relationship mapping","Introduction paths recorded per investor and saved","Demonstrated"],
+    ["7. Outreach workflow","Approval required before contact, outreach tracker with interest and follow-ups; the tool does not send messages","Demonstrated"],
+    ["8. Activity logging","Every touch logged with date, channel, person, summary and next step","Demonstrated"],
+    ["9. Follow-up and reminders","Suggested follow-up dates, overdue and due-today lists","Demonstrated; the 30-day inactivity threshold is a placeholder"],
+    ["10. Import and export","PDF and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
+    ["11. Privacy, security, compliance","Suppression flag; contacts only as entered; no sign-in","Partial: anyone with the address can use it"],
+    ["12. Reporting and dashboard","Counts that lead to the investors behind them, groups, top 10","Demonstrated; time saved is not measured"],
+    ["13. Technical requirements","Web page and server on Render with a Postgres database; data saved and exportable","Demonstrated"],
+    ["14. Items to confirm","Listed below","Open, pending DL3"]
   ];
-  const w=CRIT.map(c=>`<tr><td>${c.label}</td><td><input type="number" min="0" max="100" id="w_${c.k}" value="${S.weights[c.k]}" style="width:70px" ${can("weights")?"":"disabled"}></td></tr>`).join("");
-  const total=Object.values(S.weights).reduce((a,b)=>a+b,0);
   const confirm=[
     "Current CRM, database, and contact-record access",
     "Equity check range and eligible investor types",
-    "Who holds the Administrator and Approver roles",
-    "Who can see relationship data",
+    "Who can approve outreach (there is no sign-in yet)",
+    "Who should see relationship data once there is a sign-in",
     "Outreach cadence and inactivity threshold (30 days is a placeholder)",
     "Meets-criteria threshold (70 is a placeholder)",
     "Data retention and removal policy",
     "Pilot acceptance targets"
   ];
   return `
-  <div class="card">
-    <h2>Roles and permissions</h2>
-    ${table(["Permission","Roles"],perms)}
-    <div class="muted" style="margin-top:8px">Permissions are enforced in this page only. They are a demonstration, not a security boundary for a shared file.</div>
-  </div>
-  <div class="card">
-    <h2>Scoring weights (version ${S.wVersion})</h2>
-    <div class="wrap"><table><tbody>${w}</tbody></table></div>
-    <div class="row" style="margin-top:8px"><span class="muted">Total: ${total} (must be 100)</span>${can("weights")?'<button class="primary" onclick="saveWeights()">Save as new version</button>':'<span class="muted">Admin only</span>'}</div>
-  </div>
-  <div class="card">
-    <h2>Items to confirm with DL3</h2>
-    <ul>${confirm.map(c=>`<li>${esc(c)}</li>`).join("")}</ul>
-  </div>`;
-}
-
-function vReq(){
-  const r=[
-    ["1. Purpose and scope","Pilot of research prospects with the full workflow","Demonstrated"],
-    ["2. Users and roles","Role switch enforces Admin, Editor, Approver, Viewer, and Relationship Holder permissions","Demonstrated"],
-    ["3. Core data","Type, HQ, decision-makers, strategy, check range, deals, scores, sources, owner, approval, follow-up, notes","Demonstrated"],
-    ["4. Data quality and provenance","Dated sources, derived confidence, unverified-date flags, duplicate blocking, change history","Demonstrated"],
-    ["5. Scoring and ranking","Weighted criteria with anchors, deal cap, sort and filter, review gate before shortlist, versioned weights","Demonstrated"],
-    ["6. Relationship mapping","Introduction paths shown by role, others restricted, confirmation dates; sample relationship data is fictional","Demonstrated"],
-    ["7. Outreach workflow","11 stages, approval required before contacted, stage history; the tool does not send messages","Demonstrated"],
-    ["8. Activity logging","Date, type, person, summary, and next step; role-limited logging","Demonstrated"],
-    ["9. Follow-up and reminders","Next follow-up, overdue alerts, inactivity flag","Demonstrated; 30-day threshold is a placeholder"],
-    ["10. Import and export","PDF and website import (AI reads the document, firms go to the review queue, duplicates skipped); full CSV download of the database","Demonstrated on the Render version; import needs the AI key"],
-    ["11. Privacy, security, compliance","Role-limited views, suppression flag, audit log of edits and relationship views","Partial: retention rules are placeholders; not a real security boundary"],
-    ["12. Reporting and dashboard","Metrics, top-10 shortlist, review queue, pipeline summary","Demonstrated; time saved shows as not measured"],
-    ["13. Technical requirements","Single HTML file; data model visible in code; exportable","Partial: data resets on reload; no persistent database"],
-    ["14. Items to confirm","Listed on the Admin tab","Open, pending DL3"]
-  ];
-  return `<div class="card"><h2>Requirements check</h2>${table(["Section","How this example shows it","Status"],r)}</div>`;
+  <div class="card"><h2>How the tool works</h2>
+    <ol><li><strong>Find:</strong> add investors by hand, or import a PDF or website. The AI can research each one.</li>
+    <li><strong>Review:</strong> fix what is flagged, check the scores and sources, then confirm the details.</li>
+    <li><strong>Reach out:</strong> approve an investor for outreach, log every email, call and meeting, and follow up on time.</li></ol></div>
+  <div class="card"><h2>How the score works</h2>
+    <ul>
+      <li>Each criterion is scored 0 to 5. Points equal score times weight, divided by 5. Points total up to 100.</li>
+      <li>5 means strong, verified evidence. 3 means partial or indirect. 1 means weak or inferred. 0 means no evidence or conflicting evidence.</li>
+      <li>If there are no verified deals, the fit score is held at 60 until a deal is added.</li>
+      <li>Confidence is separate: High means two or more dated sources from the past 24 months, Medium means at least one dated source, Low means self-reported or no dated source.</li>
+    </ul>
+    <div class="wrap"><table><thead><tr><th>Criterion</th><th>Weight</th></tr></thead><tbody>${w}</tbody></table></div>
+    <div class="muted" style="margin-top:6px">The weights are fixed for now.</div></div>
+  <details class="card"><summary><strong>Requirements check</strong> (the original pilot spec)</summary>${table(["Section","How this tool shows it","Status"],req)}</details>
+  <details class="card"><summary><strong>Still to confirm with DL3</strong></summary><ul>${confirm.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>`;
 }
 
 boot();
