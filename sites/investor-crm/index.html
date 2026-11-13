@@ -56,6 +56,17 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 .sgrid .card{margin:0;padding:8px 10px}
 .sgrid .metric .v{font-size:20px}
 header input{width:170px}
+.rtable{width:100%}
+.linkchip.on{background:var(--fill);color:var(--on-fill);border-color:var(--fill);font-weight:600}
+@media (max-width:640px){
+  .rtable thead{display:none}
+  .rtable,.rtable tbody{display:block}
+  .rtable tr{display:block;border:1px solid var(--border);border-radius:8px;margin:8px 0;padding:8px 10px}
+  .rtable td{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border:0;padding:3px 0;text-align:right}
+  .rtable td::before{content:attr(data-label);color:var(--muted);font-size:12px;text-align:left;flex:0 0 auto}
+  .rtable td[data-label="Investor"]{display:block;text-align:left}
+  .rtable td[data-label="Investor"]::before{display:none}
+}
 details.card>summary{cursor:pointer}
 .linkchip{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--border);color:inherit}
 .linkchip:hover{border-color:var(--logo-teal)}
@@ -77,9 +88,8 @@ details.card>summary{cursor:pointer}
   </div>
 </header>
 <nav id="nav">
-  <button data-tab="Dashboard" onclick="go('Dashboard')">Dashboard</button>
+  <button data-tab="Prospects" onclick="S.selected=null;go('Prospects')">Investors</button>
   <button data-tab="Tracker" onclick="go('Tracker')">Outreach tracker</button>
-  <button data-tab="Prospects" onclick="go('Prospects')">Investors</button>
   <button data-tab="Outreach" onclick="go('Outreach')">Pipeline &amp; approvals</button>
   <button data-tab="Import" onclick="go('Import')">Import</button>
   <button data-tab="About" onclick="go('About')">About</button>
@@ -90,7 +100,7 @@ details.card>summary{cursor:pointer}
 
 <script>
 /* ---------- Constants ---------- */
-const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30, FIT_THRESHOLD=70;
+const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30;
 const CRIT=[
   {k:"chicago",label:"Chicago interest"},
   {k:"mf",label:"Mixed-income / multifamily experience"},
@@ -105,7 +115,7 @@ const PRE_APPROVAL=["identified","researched","scored","reviewed"];
 const CLOSED=["committed","passed","archived"];
 /* ---------- State ---------- */
 const S={
-  tab:"Dashboard", selected:null, msg:"", who:"",
+  tab:"Prospects", selected:null, msg:"", who:"", view:"all", q:"", showAdd:false, open:{},
   weights:{chicago:20,mf:20,check:20,strategy:15,evidence:15,capital:10},
   filters:{minFit:0,conf:"",type:"",stage:""}
 };
@@ -168,25 +178,15 @@ function conf(i){
 }
 function overdue(i){return !!i.next&&i.next<AS_OF&&!CLOSED.includes(i.stage)}
 function inactive(i){return days(AS_OF,i.last)>INACT_DAYS}
-function verifiable(i){return i.scores.evidence>=3&&i.decisionMakers.length>0&&recentCount(i)>=1}
 function flags(i) { return FLAG_CATALOG.filter(f => f.test(i)).map(f => f.label); }
 function flagChips(i){return FLAG_CATALOG.map((f,k)=>f.test(i)?`<button type="button" class="chip flag linkchip" title="Open this group and fix the flag" onclick="event.stopPropagation();openGroup('flag',${k})">${esc(f.label)}</button>`:"").join("")}
-function shortlist() { return INV.filter(i => !i.suppressed && conf(i) !== "Low" && i.review !== "pending").sort((a, b) => fit(b).t - fit(a).t).slice(0, 10); }
-
-function reviewQueue(){return INV.filter(i=>!i.suppressed&&conf(i)==="Low").sort((a,b)=>fit(b).t-fit(a).t)}
-function filtered(){
-  const f=S.filters;
-  return INV.filter(i=>fit(i).t>=(+f.minFit||0)&&(!f.conf||conf(i)===f.conf)&&(!f.type||i.type===f.type)&&(!f.stage||i.stage===f.stage))
-            .sort((a,b)=>fit(b).t-fit(a).t);
-}
-
 /* ---------- Permissions ---------- */
 function can(){return true} // everyone on the team can edit; there is no sign-in yet
 function canLogFor(){return true}
 function relView(i){return{vis:i.rel,hidden:0}}
 
 /* ---------- Actions ---------- */
-function go(t){S.tab=t;S.msg="";render()}
+function go(t){S.tab=t==="Dashboard"?"Prospects":t;S.msg="";render()}
 function setF(k,v){S.filters[k]=v;render()}
 function selectInv(id){S.selected=id;render()}
 async function saveDetail(id) {
@@ -238,7 +238,8 @@ async function addProspect(andResearch) {
   const i = newInv(name, type, hq, "Manual entry");
   i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
   INV.push(i);
-  S.msg = await saveRemote(i, "Added " + name + " to the review queue. Check it, then press Confirm details.");
+  S.showAdd = false;
+  S.msg = await saveRemote(i, "Added " + name + ". It starts as \"To confirm\": check it, then press Confirm details.");
   render();
   if (andResearch === true && i.rid) { S.selected = i.id; await runResearch(i.id); }
 }
@@ -517,7 +518,7 @@ function vImport() {
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Dashboard": vDash, "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Outreach": vOutreach, "Import": vImport, "About": vAbout };
+  const views = { "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Outreach": vOutreach, "Import": vImport, "About": vAbout };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
   else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
@@ -527,41 +528,76 @@ function render() {
   document.getElementById("app").innerHTML = top + notice + (S.loading ? "" : views[S.tab]());
 }
 
+/* ---------- The Investors page: numbers, search, a list, and groups ---------- */
+const OUTREACH_STAGES = ["contacted", "meeting scheduled", "in diligence", "committed"];
+const VIEWS = [
+  ["all", "All", () => true],
+  ["confirm", "To confirm", i => i.review === "pending"],
+  ["fix", "Needs fixing", i => flags(i).length > 0],
+  ["ready", "Ready for outreach", i => i.stage === "approved for outreach"],
+  ["outreach", "In outreach", i => OUTREACH_STAGES.includes(i.stage)]
+];
+const viewTest = k => (VIEWS.find(v => v[0] === k) || VIEWS[0])[2];
+function filtered(){
+  const f = S.filters, q = (S.q || "").toLowerCase().trim(), inView = viewTest(S.view);
+  return INV.filter(i => inView(i) && fit(i).t >= (+f.minFit || 0) && (!f.conf || conf(i) === f.conf) && (!f.type || i.type === f.type) && (!f.stage || i.stage === f.stage) && (!q || i.name.toLowerCase().includes(q)))
+    .sort((a, b) => fit(b).t - fit(a).t);
+}
+function setView(k) { S.view = k; render(); }
+function setQ(v) { S.q = v; const el = document.getElementById("invList"); if (el) el.innerHTML = listHtml(); }
+function toggleAdd() { S.showAdd = !S.showAdd; render(); if (S.showAdd) { const n = document.getElementById("np_name"); if (n) n.focus(); } }
+function flagChipsShort(i, n) {
+  const on = FLAG_CATALOG.map((f, k) => ({ f, k })).filter(x => x.f.test(i));
+  const chips = on.slice(0, n).map(({ f, k }) => `<button type="button" class="chip flag linkchip" title="Open this group and fix the flag" onclick="event.stopPropagation();openGroup('flag',${k})">${esc(f.label)}</button>`).join("");
+  return chips + (on.length > n ? `<span class="muted" style="font-size:12px">+${on.length - n} more</span>` : "") + (on.length ? "" : '<span class="muted">Nothing</span>');
+}
+function listHtml() {
+  const rows = filtered().map(i => `<tr style="cursor:pointer" onclick="selectInv('${esc(i.id)}')">
+    <td data-label="Investor"><strong>${esc(i.name)}</strong><div class="muted" style="font-size:12px">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div></td>
+    <td data-label="Fit">${fit(i).t}</td>
+    <td data-label="Status">${i.review === "pending" ? "To confirm" : "Confirmed"} · ${esc(conf(i))} confidence</td>
+    <td data-label="Stage">${esc(i.stage)}</td>
+    <td data-label="To fix">${flagChipsShort(i, 2)}</td></tr>`).join("");
+  return `<table class="rtable"><thead><tr><th>Investor</th><th>Fit</th><th>Status</th><th>Stage</th><th>To fix</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted">No investors match.</td></tr>'}</tbody></table>`;
+}
+function vProspects(){
+  if (S.selected) {
+    const i = INV.find(x => x.id === S.selected);
+    if (i) return `<div class="row" style="margin-bottom:8px"><button onclick="S.selected=null;render()">← All investors</button></div>` + detail(i);
+    S.selected = null;
+  }
+  const link = (n, js) => `<a href="#" onclick="${js};return false">${n}</a>`;
+  const toConfirm = INV.filter(viewTest("confirm")).length, needFix = INV.filter(viewTest("fix")).length,
+    due = followUps().filter(o => o.follow_up <= todayStr()).length, ready = INV.filter(viewTest("ready")).length;
+  const f = S.filters;
+  const sel = (id, opts, cur, label) => `<select onchange="setF('${id}',this.value)"><option value="">${label}</option>${opts.map(o => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+  const chips = VIEWS.map(([k, label, test]) => `<button type="button" class="chip linkchip ${S.view === k ? "on" : ""}" onclick="setView('${k}')">${label}: ${INV.filter(test).length}</button>`).join(" ");
+  const add = S.showAdd ? `<div class="card"><h2 style="margin-top:0">Add an investor</h2><div class="row"><input id="np_name" placeholder="Firm name"><select id="np_type">${TYPES.filter(x => x !== "Unclassified").map(x => `<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="Headquarters"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API && S.research && S.research.enabled ? '<button onclick="addProspect(true)">Add and research</button>' : ""}<button onclick="toggleAdd()">Cancel</button></div><div class="muted" style="margin-top:6px">New investors start as "To confirm". Duplicate names are blocked.</div></div>` : "";
+  return `
+  <div class="grid">
+    ${metric(link(toConfirm, "setView('confirm')"), "Investors to confirm")}
+    ${metric(link(needFix, "setView('fix')"), "Investors with something to fix")}
+    ${metric(link(due, "go('Tracker')"), "Follow-ups due")}
+    ${metric(link(ready, "setView('ready')"), "Approved, ready to contact")}
+  </div>
+  <div class="row" style="margin:4px 0 8px"><button class="primary" onclick="toggleAdd()">Add investor</button><button onclick="go('Import')">Import from PDF or website</button><button onclick="exportCsv()">Export CSV</button></div>
+  ${add}
+  <div class="card">
+    <div class="row" style="margin-bottom:8px"><input type="search" placeholder="Search by name" value="${esc(S.q)}" oninput="setQ(this.value)" style="flex:1 1 200px"></div>
+    <div style="margin-bottom:8px">${chips}</div>
+    <details ${S.open.filters ? "open" : ""} ontoggle="S.open.filters=this.open"><summary class="muted">More filters</summary>
+      <div class="row" style="margin-top:6px"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf", ["High", "Medium", "Low"], f.conf, "Any confidence")}${sel("type", TYPES, f.type, "Any type")}${sel("stage", STAGES, f.stage, "Any stage")}</div></details>
+    <div id="invList" style="margin-top:8px">${listHtml()}</div>
+  </div>
+  <details class="card" ${S.open.groups ? "open" : ""} ontoggle="S.open.groups=this.open"><summary><strong>Browse by group</strong> <span class="muted">(flag, type, confidence or stage)</span></summary><div style="margin-top:8px">${groupsCard()}</div></details>`;
+}
+
 function table(h,rows){
   const body=rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("");
   return `<div class="wrap"><table><thead><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr></thead><tbody>${body||`<tr><td colspan="${h.length}" class="muted">None</td></tr>`}</tbody></table></div>`;
 }
 function metric(v,l){return `<div class="card metric"><div class="v">${v}</div><div class="l">${l}</div></div>`}
 function nameLink(i){return `<a href="#" onclick="go('Prospects');selectInv('${i.id}');return false">${esc(i.name)}</a>`}
-
-function vDash(){
-  const toConfirm=INV.filter(i=>i.review==="pending").length;
-  const needFix=INV.filter(i=>flags(i).length).length;
-  const due=followUps().filter(o=>o.follow_up<=todayStr()).length;
-  const ready=INV.filter(i=>i.stage==="approved for outreach").length;
-  const sl=shortlist();
-  const link=(n,js)=>`<a href="#" onclick="${js};return false">${n}</a>`;
-  return `
-  <div class="grid">
-    ${metric(link(toConfirm,"openGroup('flag',flagIdx('pending'))"),"Investors to confirm")}
-    ${metric(link(needFix,"openGroup('any','')"),"Investors with something to fix")}
-    ${metric(link(due,"go('Tracker')"),"Follow-ups due")}
-    ${metric(link(ready,"openGroup('stage','approved for outreach')"),"Approved, ready to contact")}
-  </div>
-  ${groupsCard()}
-  <h2>Top 10 investors</h2>
-  <div class="card">${table(["Rank","Investor","Fit","Confidence","Stage","To fix"],sl.map((i,k)=>[k+1,nameLink(i),fit(i).t,conf(i),esc(i.stage),flagChips(i)]))}</div>`;
-}
-
-function vProspects(){
-  const f=S.filters;
-  const sel=(id,opts,cur,label)=>`<select onchange="setF('${id}',this.value)"><option value="">${label}</option>${opts.map(o=>`<option ${o===cur?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
-  const bar=`<div class="card row"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf",["High","Medium","Low"],f.conf,"All confidence")}${sel("type",TYPES,f.type,"All types")}${sel("stage",STAGES,f.stage,"All stages")}<button onclick="exportCsv()">Export CSV</button></div>`;
-  const rows=filtered().map(i=>`<tr style="cursor:pointer" onclick="selectInv('${i.id}')"><td>${esc(i.name)}</td><td>${esc(i.type)}</td><td>${fit(i).t}</td><td>${conf(i)}</td><td>${esc(i.stage)}</td><td>${esc(i.owner)}</td><td>${i.next||"none set"}</td><td>${flagChips(i)}</td></tr>`).join("");
-  const t=`<div class="card wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Fit</th><th>Confidence</th><th>Stage</th><th>Owner</th><th>Next follow-up</th><th>To fix</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="muted">No investors match these filters</td></tr>'}</tbody></table></div>`;
-  const add=can("edit")?`<div class="card"><h2>Add an investor</h2><div class="row"><input id="np_name" placeholder="Name"><select id="np_type">${TYPES.filter(x=>x!=="Unclassified").map(x=>`<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="HQ"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API&&S.research&&S.research.enabled?'<button onclick="addProspect(true)">Add and research</button>':""}</div><div class="muted" style="margin-top:6px">Duplicate names are blocked.</div></div>`:"";
-  return bar+t+add+(S.selected?detail(INV.find(x=>x.id===S.selected)):"");
-}
 
 function detail(i) {
   const f = fit(i), canE = can("edit"), rv = relView(i), W = S.weights;
@@ -667,7 +703,7 @@ function vAbout(){
     ["9. Follow-up and reminders","Suggested follow-up dates, overdue and due-today lists","Demonstrated; the 30-day inactivity threshold is a placeholder"],
     ["10. Import and export","PDF and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
     ["11. Privacy, security, compliance","Suppression flag; contacts only as entered; no sign-in","Partial: anyone with the address can use it"],
-    ["12. Reporting and dashboard","Counts that lead to the investors behind them, groups, top 10","Demonstrated; time saved is not measured"],
+    ["12. Reporting and dashboard","Counts at the top of the Investors page that lead to the investors behind them, search, views, groups","Demonstrated; time saved is not measured"],
     ["13. Technical requirements","Web page and server on Render with a Postgres database; data saved and exportable","Demonstrated"],
     ["14. Items to confirm","Listed below","Open, pending DL3"]
   ];

@@ -163,7 +163,7 @@ function groupSummary(list) {
 /* ---------- The group page ---------- */
 function vGroup() {
   const g = S.group;
-  if (!g) return `<div class="card">Pick a group on the Dashboard.</div>`;
+  if (!g) return `<div class="card">Pick a group on the Investors page.</div>`;
   const list = groupMembers(g), s = groupSummary(list);
   const back = `<button onclick="go(S.prevTab||'Dashboard')">← Back</button>`;
   const sentence = s.n === 0 ? "Nobody is in this group." :
@@ -232,13 +232,13 @@ function trackerFor(id) {
   go("Tracker");
 }
 
-/* ---------- The Groups card on the Dashboard ---------- */
+/* ---------- Browse by group (on the Investors page) ---------- */
 function groupsCard() {
   const flagChips_ = FLAG_CATALOG.map((f, k) => [f.label, INV.filter(f.test).length, k]).filter(x => x[1] > 0).map(([l, n, k]) => gchip(l, n, "flag", k)).join("") || '<span class="muted">No flags. Everything is clean.</span>';
   const types = TYPES.map(t => [t, INV.filter(i => i.type === t).length]).filter(x => x[1] > 0).map(([t, n]) => gchip(t, n, "type", t)).join("");
   const confs = ["High", "Medium", "Low"].map(c => gchip(c, INV.filter(i => conf(i) === c).length, "conf", c)).join("");
   const stages = STAGES.map(st => [st, INV.filter(i => i.stage === st).length]).filter(x => x[1] > 0).map(([st, n]) => gchip(st, n, "stage", st)).join("");
-  return `<h2>Groups</h2><div class="card"><div class="muted" style="margin-bottom:6px">Click a group to see a summary and fix its flags.</div>
+  return `<div><div class="muted" style="margin-bottom:6px">Click a group to see a summary and fix its flags.</div>
     <div><strong>Flags</strong><br>${flagChips_}</div>
     <div style="margin-top:8px"><strong>Investor type</strong><br>${types || '<span class="muted">none</span>'}</div>
     <div style="margin-top:8px"><strong>Confidence</strong><br>${confs}</div>
