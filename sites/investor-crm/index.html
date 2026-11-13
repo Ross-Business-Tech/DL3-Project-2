@@ -56,6 +56,8 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 .sgrid .card{margin:0;padding:8px 10px}
 .sgrid .metric .v{font-size:20px}
 header input{width:170px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px}
+h3{font-size:13px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .rtable{width:100%}
 .linkchip.on{background:var(--fill);color:var(--on-fill);border-color:var(--fill);font-weight:600}
 @media (max-width:640px){
@@ -599,33 +601,34 @@ function metric(v,l){return `<div class="card metric"><div class="v">${v}</div><
 function nameLink(i){return `<a href="#" onclick="go('Prospects');selectInv('${i.id}');return false">${esc(i.name)}</a>`}
 
 function detail(i) {
-  const f = fit(i), canE = can("edit"), rv = relView(i), W = S.weights;
-  const scRows = CRIT.map(c => {
-    const pts = (i.scores[c.k] * W[c.k] / 5).toFixed(1);
-    const cell = canE ? `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === i.scores[c.k] ? "selected" : ""}>${n}</option>`).join("")}</select>` : i.scores[c.k];
-    return [c.label, cell, W[c.k], pts];
-  });
-  scRows.push(["Total", `<strong>${f.t}</strong>`, "100", f.capped ? "capped at 60" : ""]);
-  let rel = "";
-  if (!i.rel.length) rel = "None recorded";
-  else {
-    rel = rv.vis.map(r => `${esc(r.holder)}: ${esc(r.knows)}, confirmed ${r.confirmed}`).join("<br>");
-    if (rv.hidden) rel += (rel ? "<br>" : "") + `<span class="muted">${rv.hidden} introduction path(s) restricted.</span>`;
-  }
-  const src = table(["ID", "Source", "URL", "Accessed", "Published"], i.sources.map(s => [s.id, esc(s.label), esc(s.url), esc(s.accessed), s.published || '<span class="flag">missing (flagged)</span>']));
-  const dms = i.decisionMakers.length ? i.decisionMakers.map(contactHtml).join("<br>") : '<span class="flag">None verified (flagged)</span>';
-  const hist = i.history.slice(0, 10).map(h => `${h.date} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
-  const pending = i.review === "pending";
-  const confirmBtn = pending && canE ? `<button class="primary" onclick="confirmRecord('${i.id}')">Confirm details</button>` : "";
+  const f = fit(i), W = S.weights, pending = i.review === "pending";
+  const scRows = CRIT.map(c => [esc(c.label), `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === i.scores[c.k] ? "selected" : ""}>${n}</option>`).join("")}</select>`, W[c.k], (i.scores[c.k] * W[c.k] / 5).toFixed(1)]);
+  scRows.push(["Total", `<strong>${f.t}</strong>`, "100", f.capped ? "held at 60 (no verified deals)" : ""]);
+  const scTable = `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const rel = i.rel.length ? i.rel.map(r => `${esc(r.holder)}: ${esc(r.knows)}${r.confirmed ? ", confirmed " + esc(r.confirmed) : ""}`).join("<br>") : "None recorded";
+  const src = i.sources.length ? table(["Source", "Link", "Published"], i.sources.map(s => [esc(s.label), /^https:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">open</a>` : esc(s.url), s.published ? esc(s.published) : '<span class="flag">missing</span>'])) : '<div class="muted">No sources yet.</div>';
+  const dms = i.decisionMakers.length ? i.decisionMakers.map(contactHtml).join("<br>") : '<span class="muted">No contact yet</span>';
+  const links = [i.website, i.linkedin].filter(Boolean).map(linkOrText).join("<br>") + (i.contactEmail ? (i.website || i.linkedin ? "<br>" : "") + esc(i.contactEmail) : "");
+  const hist = i.history.slice(0, 10).map(h => `${esc(h.date)} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
   const ai = S.research || { enabled: false };
   const running = i.aiStatus === "running";
   const canResearch = !!(window.INVESTORS_API && ai.enabled && pending && i.rid);
   const aiBtn = canResearch
-    ? `<button ${running ? "disabled" : ""} onclick="runResearch('${i.id}')">${running ? "Researching..." : i.aiStatus === "done" ? "Run AI research again" : "Run AI research"}</button>`
-    : `<button disabled title="${window.INVESTORS_API ? (pending ? "AI research is not set up yet" : "Only investors waiting for review can be researched") : "Available on the Render version"}">Run AI research</button>`;
+    ? `<button ${running ? "disabled" : ""} onclick="runResearch('${esc(i.id)}')">${running ? "Researching..." : i.aiStatus === "done" ? "Run AI research again" : "Run AI research"}</button>`
+    : `<button disabled title="${window.INVESTORS_API ? "AI research is not set up yet" : "Available on the Render version"}">Run AI research</button>`;
   const aiBlock = i.aiStatus ? `<div class="card" style="margin:8px 0 0"><strong>AI research: ${esc(i.aiStatus)}</strong>${i.aiUpdated ? ` <span class="muted">(${esc(i.aiUpdated)})</span>` : ""}<div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc(i.aiSummary)}</div>${i.aiMissing ? `<div style="margin-top:6px"><strong>Still to check or fill in</strong><div class="flag" style="white-space:pre-wrap">${esc(i.aiMissing)}</div></div>` : ""}<div class="muted" style="margin-top:6px">The AI can be wrong. A person must check every score and source before confirming.</div></div>` : "";
-  const form = canE ? `
-    <h2>Edit record</h2>
+  const next = pending ? "Check the details and fix the flags below, then confirm the details."
+    : !i.approval ? "The details are confirmed. Approve this investor for outreach when DL3 is ready to contact them."
+    : "Approved by " + esc(i.approval.by) + " on " + esc(i.approval.date) + ". Log each contact on the Outreach page.";
+  const actions = (pending ? `<button class="primary" onclick="confirmRecord('${esc(i.id)}')">Confirm details</button>` : "")
+    + (!pending && !i.approval ? `<button class="primary" onclick="approve('${esc(i.id)}')">Approve for outreach</button>` : "")
+    + (i.approval ? `<button class="primary" onclick="trackerFor('${esc(i.id)}')">Log outreach</button>` : "")
+    + (pending ? aiBtn : "");
+  const facts = [["Strategy", esc(i.strategy)], ["Equity check", esc(i.check)], ["Prior deals", i.deals.map(d => esc(d)).join("<br>")]].filter(x => x[1]);
+  const open = k => (S.open[k] ? "open" : "") + ` ontoggle="S.open.${k}=this.open"`;
+  const edit = `
+    <h3 style="margin:0 0 6px">Scores</h3>${scTable}
+    <h3>Details</h3>
     <div class="row">
       <label>Name <input id="d_name" value="${esc(i.name)}"></label>
       <label>Type <select id="d_type">${TYPES.filter(x => x !== "Unclassified").map(x => `<option ${x === i.type ? "selected" : ""}>${x}</option>`).join("")}</select></label>
@@ -643,35 +646,25 @@ function detail(i) {
       <label>Stage <select id="d_stage">${STAGES.map(s => `<option ${s === i.stage ? "selected" : ""}>${s}</option>`).join("")}</select></label>
       <label>Owner <input id="d_owner" value="${esc(i.owner)}"></label>
       <label>Next follow-up <input type="date" id="d_next" value="${esc(i.next)}"></label>
-      <label><input type="checkbox" id="d_supp" ${i.suppressed ? "checked" : ""}> Suppressed (removal request)</label>
+      <label><input type="checkbox" id="d_supp" ${i.suppressed ? "checked" : ""}> Asked to be removed</label>
     </div>
     <div style="margin-top:8px"><label>Notes<br><textarea id="d_notes" rows="2" style="width:100%">${esc(i.notes)}</textarea></label></div>
-    <div class="row" style="margin-top:10px"><button class="primary" ${running ? "disabled" : ""} onclick="saveDetail('${i.id}')">Save changes</button>${confirmBtn}${aiBtn}</div>`
-    : `<div class="muted" style="margin-top:8px">Read-only.</div>`;
+    <div class="row" style="margin-top:10px"><button class="primary" ${running ? "disabled" : ""} onclick="saveDetail('${esc(i.id)}')">Save changes</button></div>`;
   return `<div class="card">
-    <h2>${esc(i.name)}: ${esc(i.type)}</h2>
-    <div class="row"><span class="chip">Fit ${f.t}${f.capped ? " (capped)" : ""}</span><span class="chip">Confidence ${conf(i)}</span><span class="chip">${pending ? "Pending review" : "Confirmed"}</span><span class="chip">Outreach approval: ${i.approval ? esc(i.approval.by) + " on " + i.approval.date : "none"}</span></div>
-    <div class="grid" style="margin-top:10px">
-      <div><strong>HQ</strong><br>${esc(i.hq)}</div>
-      <div><strong>Strategy</strong><br>${esc(i.strategy) || "none recorded"}</div>
-      <div><strong>Equity check range</strong><br>${esc(i.check) || "none recorded"}</div>
-      <div><strong>Prior transactions</strong><br>${i.deals.map(d => esc(d)).join("<br>") || "None recorded"}</div>
-    </div>
-    <div><strong>Contacts</strong><br>${dms}</div>
-    <div style="margin-top:8px"><strong>Firm links</strong><br>${[i.website, i.linkedin].filter(Boolean).map(linkOrText).join("<br>") || "none recorded"}${i.contactEmail ? "<br>" + esc(i.contactEmail) : ""}</div>
+    <h2 style="margin-top:0">${esc(i.name)}</h2>
+    <div class="muted">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div>
+    <div class="row" style="margin-top:8px"><span class="chip">Fit ${f.t}</span><span class="chip">${esc(conf(i))} confidence</span><span class="chip">${pending ? "To confirm" : "Confirmed"}</span><span class="chip">${i.approval ? "Approved by " + esc(i.approval.by) : "Not approved yet"}</span><span class="chip">${esc(i.stage)}</span></div>
+    <p style="margin:10px 0 6px">${next}</p>
+    <div class="row">${actions}</div>
+    <h3>To fix</h3>${flagFixRows(i, -1)}
+    <h3>Contact</h3><div>${dms}</div>${links ? `<div style="margin-top:4px">${links}</div>` : ""}
+    ${facts.length ? `<h3>Facts</h3><div class="facts">${facts.map(([k, v]) => `<div><strong>${k}</strong><br>${v}</div>`).join("")}</div>` : ""}
     ${aiBlock}
-    <div style="margin-top:8px"><strong>Flags</strong> <span class="muted">(press Fix to resolve one)</span>${flagFixRows(i, -1)}</div>
-    <h2>Scores</h2>
-    <div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
-    <h2>Sources</h2>
-    ${src}
-    <h2>Introduction paths</h2>
-    <div class="card" style="margin:0">${rel}</div>
-    ${form}
-    <h2>Change history (latest 10)</h2>
-    <div class="card" style="margin:0">${hist}</div>
-    <div class="row" style="margin-top:10px"><button onclick="S.selected=null;render()">Close</button></div>
-  </div>`;
+  </div>
+  <details class="card" ${open("sources")}><summary><strong>Sources</strong> <span class="muted">(${i.sources.length})</span></summary><div style="margin-top:8px">${src}</div></details>
+  <details class="card" ${open("intro")}><summary><strong>Introduction paths</strong> <span class="muted">(${i.rel.length})</span></summary><div style="margin-top:8px">${rel}</div></details>
+  <details class="card" ${open("edit")}><summary><strong>Edit scores and details</strong></summary><div style="margin-top:8px">${edit}</div></details>
+  <details class="card" ${open("history")}><summary><strong>History</strong></summary><div style="margin-top:8px">${hist}</div></details>`;
 }
 
 function vAbout(){

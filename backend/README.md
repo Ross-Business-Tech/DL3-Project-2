@@ -67,6 +67,18 @@ checks as the investor list: unknown fields are refused, dates must look like `2
 direction must come from fixed lists. On a here.now test link there is no shared data, so the tab shows made-up sample
 projects and saves nothing.
 
+## The four tabs
+
+- **Investors:** the home page. Four numbers (to confirm, to fix, follow-ups due, ready to contact), search, views,
+  the list (cards on a phone), and "Browse by group". Opening an investor shows its page: what to fix, contact, facts,
+  and collapsible Sources, Introduction paths, Edit scores and details, and History.
+- **Outreach:** who is waiting for approval, follow-ups to push, the log form, and interest by project.
+- **Import:** PDF and website import, and the CSV download.
+- **About:** how the tool and the score work, the requirements check, and what is still to confirm with DL3.
+
+The person using the page types their name at the top. It is kept in their browser and recorded on approvals and
+changes. There is no sign-in yet, so anyone with the address can use the tool.
+
 ## Groups and flag fixes
 
 Every group in the tool is clickable: a flag, a pipeline stage, an investor type or a confidence level (on the
