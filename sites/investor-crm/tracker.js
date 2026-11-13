@@ -53,7 +53,7 @@ function interestOf(k) { return INTEREST.find(x => x.k === k) || INTEREST[4]; }
 function money(m) { return m ? "$" + (Math.round(m * 10) / 10).toLocaleString() + "M" : "$0"; }
 
 /* ---------- Tracker state ---------- */
-const T = { outreach: [], projects: [], project: "", draft: null, prefill: null, showAll: false };
+const T = { outreach: [], projects: [], project: "", draft: null, prefill: null, showAll: false, showAllApprovals: false };
 
 /* ---------- Loading and saving ---------- */
 async function loadAll(col) {
@@ -184,7 +184,7 @@ async function logOutreach() {
   if (!o.project) { S.msg = "Pick the project this outreach is for. Add a project first if the list is empty."; render(); return; }
   if (!o.summary) { S.msg = "Add a short summary of what happened."; render(); return; }
   if (o.direction === "out" && !i.approval) {
-    S.msg = i.name + " has not been approved for outreach yet. Approve it first (Pipeline & approvals tab) before DL3 reaches out. Replies from the investor can still be logged.";
+    S.msg = i.name + " has not been approved for outreach yet. Approve it first, in the Waiting for approval list at the top of this page, before DL3 reaches out. Replies from the investor can still be logged.";
     render(); return;
   }
   if (o.interest === "Passed") o.follow_up = "";
@@ -250,6 +250,20 @@ async function addProject() {
   T.projects.push(p);
   S.msg = await trySave(() => saveRec(projCol(), p, p), "Added project " + name + ".");
   render();
+}
+
+/* ---------- Approvals: who may DL3 contact? ---------- */
+function approvalsCard() {
+  const waiting = INV.filter(i => i.review !== "pending" && !i.approval && !i.suppressed).sort((a, b) => fit(b).t - fit(a).t);
+  const unconfirmed = INV.filter(i => i.review === "pending" && !i.suppressed).length;
+  const shown = T.showAllApprovals ? waiting : waiting.slice(0, 5);
+  const rows = shown.map(i => `<div class="flagrow"><span><a href="#" onclick="go('Prospects');selectInv('${esc(i.id)}');return false">${esc(i.name)}</a> <span class="muted">· fit ${fit(i).t}</span></span>
+    <button class="primary" onclick="approve('${esc(i.id)}')">Approve for outreach</button></div>`).join("");
+  const more = waiting.length > 5 ? `<button style="margin-top:8px" onclick="T.showAllApprovals=!T.showAllApprovals;render()">${T.showAllApprovals ? "Show fewer" : "Show all " + waiting.length}</button>` : "";
+  return `<h2>Waiting for approval</h2><div class="card">
+    <div class="muted" style="margin-bottom:6px">DL3 may only contact an investor after it is approved. Approving records your name (top of the page) and today's date. This tool does not send any messages.</div>
+    ${rows || '<div class="muted">Every confirmed investor has been approved.</div>'}${more}
+    ${unconfirmed ? `<div class="muted" style="margin-top:8px">${unconfirmed} more need their details confirmed first. <a href="#" onclick="S.selected=null;setView('confirm');go('Prospects');return false">See them</a></div>` : ""}</div>`;
 }
 
 /* ---------- View ---------- */
@@ -362,6 +376,7 @@ function vTracker() {
     ${metric(hot, "Hot or committed")}
     ${metric(money(raised) + (target ? ` <span class="muted" style="font-size:14px">of ${money(target)}</span>` : ""), "Soft-circled across projects")}
   </div>
+  ${approvalsCard()}
   <h2>Follow-ups to push</h2>
   <div class="card">${fuRows}${more}</div>
   ${draft}
@@ -376,6 +391,6 @@ function vTracker() {
     <li>Interest levels: ${INTEREST.map(x => "<strong>" + x.k + "</strong> (" + (x.days ? "follow up in " + x.days + " days" : "no follow-up") + ")").join(", ")}. The suggested date can be changed.</li>
     <li>Logging a new touch closes the earlier reminder for that investor and project, updates the prospect’s last contact and next follow-up, and moves its pipeline stage forward.</li>
     <li>After ${NO_REPLY_LIMIT} outreach attempts with no reply, the tracker suggests an introduction or a pause.</li>
-    <li>DL3 must have outreach approval before reaching out. Replies from investors can always be logged.</li>
+    <li>DL3 must approve an investor for outreach (the list at the top) before reaching out. Replies from investors can always be logged.</li>
   </ul></div>`;
 }

@@ -89,8 +89,7 @@ details.card>summary{cursor:pointer}
 </header>
 <nav id="nav">
   <button data-tab="Prospects" onclick="S.selected=null;go('Prospects')">Investors</button>
-  <button data-tab="Tracker" onclick="go('Tracker')">Outreach tracker</button>
-  <button data-tab="Outreach" onclick="go('Outreach')">Pipeline &amp; approvals</button>
+  <button data-tab="Tracker" onclick="go('Tracker')">Outreach</button>
   <button data-tab="Import" onclick="go('Import')">Import</button>
   <button data-tab="About" onclick="go('About')">About</button>
 </nav>
@@ -186,7 +185,7 @@ function canLogFor(){return true}
 function relView(i){return{vis:i.rel,hidden:0}}
 
 /* ---------- Actions ---------- */
-function go(t){S.tab=t==="Dashboard"?"Prospects":t;S.msg="";render()}
+function go(t){S.tab=t==="Dashboard"?"Prospects":t==="Outreach"?"Tracker":t;S.msg="";render()}
 function setF(k,v){S.filters[k]=v;render()}
 function selectInv(id){S.selected=id;render()}
 async function saveDetail(id) {
@@ -518,7 +517,7 @@ function vImport() {
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Outreach": vOutreach, "Import": vImport, "About": vAbout };
+  const views = { "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Import": vImport, "About": vAbout };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
   else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
@@ -672,20 +671,6 @@ function detail(i) {
     <h2>Change history (latest 10)</h2>
     <div class="card" style="margin:0">${hist}</div>
     <div class="row" style="margin-top:10px"><button onclick="S.selected=null;render()">Close</button></div>
-  </div>`;
-}
-
-function vOutreach(){
-  const board=STAGES.map(s=>`<div class="card" style="margin:0"><strong>${s}</strong><div style="margin-top:6px">${INV.filter(i=>i.stage===s).map(i=>`<span class="chip">${esc(i.name)}</span>`).join("")||'<span class="muted">none</span>'}</div></div>`).join("");
-  const pend=INV.filter(i=>!i.approval);
-  const rows=pend.map(i=>[esc(i.name),fit(i).t,conf(i),esc(i.stage),`<button class="primary" onclick="approve('${i.id}')">Approve for outreach</button>`]);
-  return `
-  <h2>Pipeline stages</h2>
-  <div class="grid">${board}</div>
-  <div class="card">
-    <h2>Outreach approvals</h2>
-    ${table(["Investor","Fit","Confidence","Stage","Action"],rows)}
-    <div class="muted" style="margin-top:8px">This tool records outreach. It does not send messages. An investor cannot be marked contacted until it has been approved for outreach.</div>
   </div>`;
 }
 

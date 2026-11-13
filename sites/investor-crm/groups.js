@@ -96,9 +96,9 @@ const FLAG_CATALOG = [
     } },
 
   { key: "inactive", label: "No contact in 30+ days", test: i => inactive(i),
-    help: "There has been no contact for over a month. Log the real contact in the Outreach tracker, or update the last contact date if it happened elsewhere.",
+    help: "There has been no contact for over a month. Log the real contact on the Outreach page, or update the last contact date if it happened elsewhere.",
     save: "Update last contact",
-    form: i => `<label>Date of the last real contact${dateIn("fx1", todayStr())}</label> <button type="button" onclick="trackerFor('${esc(i.id)}')">Log it in the Outreach tracker instead</button>`,
+    form: i => `<label>Date of the last real contact${dateIn("fx1", todayStr())}</label> <button type="button" onclick="trackerFor('${esc(i.id)}')">Log it on the Outreach page instead</button>`,
     apply: i => { const d = val("fx1"); if (!iso(d)) return { error: "Enter a date." }; i.last = d; return { msg: "last contact set to " + d }; } },
 
   { key: "overdue", label: "Follow-up overdue", test: i => overdue(i),

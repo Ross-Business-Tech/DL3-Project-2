@@ -55,11 +55,12 @@ saves it as a CSV file with scores, fit, confidence, sources, review status and 
 
 ## Outreach tracker
 
-The **Outreach tracker** tab (designed and written by a teammate) logs every email, call, meeting and reply with
+The **Outreach** tab (designed and written by a teammate) logs every email, call, meeting and reply with
 the DL3 project it was for, gauges each investor's interest per project, suggests follow-up dates, and shows how much
 each project has soft-circled against its target. Logging outreach also updates the investor's last contact,
-next follow-up and pipeline stage. The earlier "Outreach" tab is now **Pipeline & approvals**; an Approver must
-approve an investor there before DL3 can log outreach to them. Replies from investors can always be logged.
+next follow-up and pipeline stage. The tab is called **Outreach**. At its top, **Waiting for approval** lists confirmed investors; someone types their
+name in the box at the top of the page and presses **Approve for outreach** before DL3 can log outreach to an investor.
+Replies from investors can always be logged.
 
 The data is in two more tables, `outreach` and `projects`, served at `/api/outreach` and `/api/projects` with the same
 checks as the investor list: unknown fields are refused, dates must look like `2026-11-10`, and interest, channel and
