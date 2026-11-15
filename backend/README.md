@@ -28,7 +28,7 @@ What it does and does not do:
 
 Setup (in Render, service > **Environment**):
 - `ANTHROPIC_API_KEY`: the key from your instructor. Without it the button stays off.
-- `AI_CHECK_RANGE`: DL3's target equity check, for example `$2M to $10M`. Without it, check-size scores stay low.
+- `AI_CHECK_RANGE`: DL3's overall equity check range. The default is `$5M to $250M`; each project has its own target inside it.
 - `AI_DAILY_LIMIT`: the most research runs in 24 hours (default 40). Each run costs money, and anyone with the
   page address can start one, so keep this low.
 - `AI_MODEL`: optional. The default is the small, low-cost `claude-haiku-5-5`. A more capable (and more expensive) model can be set here.
@@ -66,6 +66,26 @@ The data is in two more tables, `outreach` and `projects`, served at `/api/outre
 checks as the investor list: unknown fields are refused, dates must look like `2026-11-10`, and interest, channel and
 direction must come from fixed lists. On a here.now test link there is no shared data, so the tab shows made-up sample
 projects and saves nothing.
+
+## Team password
+
+Set `TEAM_PASSWORD` in Render (service > **Environment**) and redeploy. Everyone then signs in with that one password
+before they can see the page or any data; a **Sign out** button appears at the top. Sessions last 30 days, and
+changing the password signs everyone out. After 10 wrong tries from one place, sign-in waits 15 minutes.
+Without `TEAM_PASSWORD` the tool is open to anyone with the address (the page says so at the top), and removing an
+investor is switched off. Never put the password in the code, in GitHub, or in a chat.
+
+## Removing an investor
+
+An investor's page has **Remove from the database**. It needs the team password to be on, a ticked box confirming the
+investor asked to be removed, and a final yes. It permanently deletes the investor and every outreach entry logged for
+them. It cannot be undone, and importing the same PDF or website again would add the firm back as a new investor.
+
+## Connecting to Agora
+
+Agora's API is not publicly documented, and its Zapier connection only creates new contacts. What works today is a file:
+**Download contacts for Agora** (Import tab) gives one row per contact (company, name, title, email, LinkedIn, firm
+details). Use Agora's contacts import and match the columns. Investors who asked to be removed are left out.
 
 ## The four tabs
 

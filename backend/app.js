@@ -156,6 +156,39 @@ async function startImport(pool, res, { kind, label, sourceUrl, read }) {
   runImportJob(pool, id, { kind, label, sourceUrl, read }).catch(e => console.error("import job crashed:", e.message));
 }
 
+const LOGIN_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>DL3 Investor CRM: sign in</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#fff;color:#10201d;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{width:min(360px,90vw);padding:24px;border:1px solid #dee1e2;border-radius:10px;border-top:3px solid #23c6b5}
+img{width:64px;height:64px;display:block;margin:0 auto 8px}
+h1{font-size:18px;text-align:center;margin:0 0 4px;color:#1f7a6e}
+p{margin:0 0 14px;text-align:center;color:#58665f;font-size:14px}
+input{width:100%;box-sizing:border-box;font:inherit;padding:9px 10px;border:1px solid #dee1e2;border-radius:6px}
+button{width:100%;margin-top:10px;font:inherit;font-weight:600;padding:9px;border:1px solid #23c6b5;border-radius:6px;background:#23c6b5;color:#06201c;cursor:pointer}
+button:disabled{opacity:.5}
+#err{margin-top:10px;min-height:20px;color:#9b2226;font-size:14px}
+</style></head><body><main>
+<img src="/dl3-logo.png" alt="DL3">
+<h1>DL3 Investor CRM</h1><p>Enter the team password to continue.</p>
+<form id="f"><input id="pw" type="password" autocomplete="current-password" placeholder="Team password" autofocus required><button id="go" type="submit">Sign in</button></form>
+<div id="err" role="alert"></div>
+<script>
+document.getElementById("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const go = document.getElementById("go"), err = document.getElementById("err");
+  go.disabled = true; err.textContent = "";
+  try {
+    const r = await fetch("/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: document.getElementById("pw").value }) });
+    if (r.ok) { location.assign("/"); return; }
+    const j = await r.json().catch(() => ({}));
+    err.textContent = r.status === 429 ? "Too many tries. Please wait a few minutes and try again." : (j.error || "Could not sign in.");
+  } catch (x) { err.textContent = "Could not reach the server. Try again."; }
+  go.disabled = false;
+});
+</script></main></body></html>`;
+
 const row = r => ({ id: r.id, data: r.data, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString() });
 
 export function createApp(pool) {
@@ -167,6 +200,52 @@ export function createApp(pool) {
     next();
   });
   app.use(express.json({ limit: "32kb" }));
+
+  // ---- Team password -------------------------------------------------------------------------
+  // Set TEAM_PASSWORD in Render to turn it on. Without it the tool is open to anyone with the address.
+  // A session is a signed, expiring cookie. Changing the password signs everyone out.
+  const teamPassword = process.env.TEAM_PASSWORD || "";
+  const authOn = teamPassword.length > 0;
+  const sessionKey = Buffer.from(teamPassword);
+  const SESSION_MS = 30 * 864e5;
+  const sign = exp => crypto.createHmac("sha256", sessionKey).update("dl3-session|" + exp).digest("base64url");
+  const makeToken = () => { const exp = Date.now() + SESSION_MS; return `${exp}.${sign(exp)}`; };
+  const sha = v => crypto.createHash("sha256").update(String(v)).digest();
+  const validToken = t => {
+    if (typeof t !== "string") return false;
+    const [exp, sig] = t.split(".");
+    if (!/^\d{10,16}$/.test(exp || "") || !sig || +exp < Date.now()) return false;
+    const good = sign(exp);
+    return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good));
+  };
+  const cookieOf = req => { const c = (req.headers.cookie || "").split(";").map(x => x.trim()).find(x => x.startsWith("dl3_session=")); return c ? c.slice(12) : ""; };
+  const signedIn = req => !authOn || validToken(cookieOf(req));
+
+  // refuse writes that come from another website
+  app.use((req, res, next) => {
+    if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
+      const o = req.get("origin");
+      if (o) { let host = ""; try { host = new URL(o).host; } catch { /* refuse below */ } if (host !== req.get("host")) return res.status(403).json({ error: "Request from another website refused." }); }
+    }
+    next();
+  });
+  const OPEN_PATHS = new Set(["/healthz", "/login", "/logout", "/favicon.ico", "/dl3-logo.png", "/tracker.js", "/groups.js", "/api/session"]);
+  app.use((req, res, next) => {
+    if (!authOn || OPEN_PATHS.has(req.path) || signedIn(req)) return next();
+    if (req.path.startsWith("/api")) return res.status(401).json({ error: "Please sign in." });
+    return res.redirect(302, "/login");
+  });
+  const loginLimit = limiter({ windowMs: 15 * 60 * 1000, max: 10 });
+  app.get("/login", (req, res) => (!authOn || signedIn(req)) ? res.redirect(302, "/") : res.type("html").send(LOGIN_HTML));
+  app.post("/login", loginLimit, (req, res) => {
+    if (!authOn) return res.json({ ok: true });
+    const pw = req.body && typeof req.body.password === "string" ? req.body.password : "";
+    if (!pw || !crypto.timingSafeEqual(sha(pw), sha(teamPassword))) return res.status(401).json({ error: "That password is not right." });
+    res.cookie("dl3_session", makeToken(), { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: SESSION_MS, path: "/" });
+    res.json({ ok: true });
+  });
+  app.post("/logout", (req, res) => { res.clearCookie("dl3_session", { path: "/" }); res.json({ ok: true }); });
+  app.get("/api/session", (req, res) => res.json({ required: authOn, signedIn: signedIn(req) }));
 
   // The CRM page. It is the same file used on here.now, with the API address added.
   const pageHtml = fs.readFileSync(path.join(SITE_DIR, "index.html"), "utf8")
@@ -260,6 +339,26 @@ export function createApp(pool) {
       const { rows } = await pool.query(`insert into ${col} (id, data) values ($1, $2) returning id, data, created_at, updated_at`, [newId(), v.data]);
       res.status(201).json({ record: row(rows[0]) });
     });
+
+    if (col === "investors") {
+      // Permanent removal, for an investor who asked to be removed. Needs the team password, and the request
+      // must say it is confirmed. The investor's outreach entries go too.
+      app.delete("/api/investors/:id", colWrites, async (req, res) => {
+        if (!authOn) return res.status(403).json({ error: "Removing an investor needs the team password to be set up first." });
+        if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+        if (!req.body || req.body.confirmed !== true) return res.status(400).json({ error: "Confirm the removal first." });
+        const db = await pool.connect();
+        try {
+          await db.query("begin");
+          const gone = await db.query("delete from investors where id = $1", [req.params.id]);
+          if (!gone.rowCount) { await db.query("rollback"); return res.status(404).json({ error: "Not found." }); }
+          const out = await db.query("delete from outreach where data->>'investor_rid' = $1", [req.params.id]);
+          await db.query("commit");
+          console.log("investor removed:", req.params.id, "outreach entries removed:", out.rowCount);
+          res.json({ deleted: true, outreachRemoved: out.rowCount });
+        } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
+      });
+    }
 
     app.patch(`/api/${col}/:id`, colWrites, async (req, res) => {
       if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });

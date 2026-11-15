@@ -56,6 +56,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 .sgrid .card{margin:0;padding:8px 10px}
 .sgrid .metric .v{font-size:20px}
 header input{width:170px}
+.dangerbtn{background:#9b2226;color:#fff;border-color:#9b2226;font-weight:600}
 .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px}
 h3{font-size:13px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .rtable{width:100%}
@@ -87,6 +88,7 @@ details.card>summary{cursor:pointer}
   </div>
   <div class="row">
     <label>Your name <input id="whoIn" placeholder="Shown on changes you make" maxlength="60" oninput="setWho(this.value)"></label>
+    <button id="signOut" hidden onclick="signOut()">Sign out</button>
   </div>
 </header>
 <nav id="nav">
@@ -101,7 +103,7 @@ details.card>summary{cursor:pointer}
 
 <script>
 /* ---------- Constants ---------- */
-const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30;
+const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30, FIT_THRESHOLD=70;
 const CRIT=[
   {k:"chicago",label:"Chicago interest"},
   {k:"mf",label:"Mixed-income / multifamily experience"},
@@ -249,7 +251,8 @@ async function addProspect(andResearch) {
 const COL = window.INVESTORS_API || "./.herenow/data/investors";
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
-  if (!r.ok) throw new Error("HTTP " + r.status);
+  if (r.status === 401 && window.INVESTORS_API) { location.assign("/login"); throw new Error("HTTP 401"); }
+  if (!r.ok) { const err = new Error("HTTP " + r.status); err.status = r.status; try { err.detail = (await r.json()).error; } catch (e) { /* no details */ } throw err; }
   return r.status === 204 ? null : r.json();
 }
 function lines(text) { return String(text || "").split("\n").map(s => s.trim()).filter(Boolean); }
@@ -326,6 +329,21 @@ async function confirmRecord(id) {
   render();
 }
 const linkOrText = u => /^https:\/\//.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u);
+async function removeInvestor(id) {
+  const i = INV.find(x => x.id === id);
+  if (!i || !i.rid) return;
+  const ok = document.getElementById("rm_ok");
+  if (!ok || !ok.checked) { S.msg = "Tick the box to confirm that " + i.name + " has asked to be removed."; render(); return; }
+  if (!window.confirm("Permanently remove " + i.name + " and all their outreach entries from the database? This cannot be undone.")) return;
+  try {
+    const r = await api("DELETE", COL + "/" + i.rid, { confirmed: true });
+    INV = INV.filter(x => x !== i);
+    T.outreach = T.outreach.filter(o => o.investor_rid !== i.rid);
+    S.selected = null; S.open.remove = false;
+    S.msg = "Removed " + i.name + " and " + r.outreachRemoved + " outreach entr" + (r.outreachRemoved === 1 ? "y" : "ies") + ".";
+  } catch (e) { S.msg = "Could not remove " + i.name + ": " + (e.detail || e.message); }
+  render();
+}
 async function refreshOne(i) {
   const r = await api("GET", COL + "/" + i.rid);
   const k = INV.indexOf(i);
@@ -362,6 +380,7 @@ async function pollResearch(id, startedAt) {
   if (Date.now() - startedAt > 6 * 60 * 1000) { S.msg = "Research is taking too long. Reload the page later to see the result."; render(); return; }
   setTimeout(() => pollResearch(id, startedAt), 4000);
 }
+async function signOut() { try { await fetch("/logout", { method: "POST" }); } catch (e) { /* leave anyway */ } location.assign("/login"); }
 async function boot() {
   if (location.hash === "#tracker") S.tab = "Tracker";
   S.loading = true; render();
@@ -376,6 +395,8 @@ async function boot() {
   }
   if (window.INVESTORS_API) {
     try { S.research = await api("GET", "/api/research/status"); } catch (e) { S.research = { enabled: false }; }
+    try { S.auth = await api("GET", "/api/session"); } catch (e) { S.auth = { required: false, signedIn: true }; }
+    document.getElementById("signOut").hidden = !S.auth.required;
     INV.filter(x => x.aiStatus === "running").forEach(x => pollResearch(x.id, Date.now()));
   }
   await loadTracker();
@@ -414,6 +435,30 @@ async function exportCsv() {
   render();
 }
 
+function saveCsv(name, head, rows) {
+  const csv = "\ufeff" + [head.join(","), ...rows.map(r => r.map(csvCell).join(","))].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = name + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+// One row per contact, with the firm's details, for importing into Agora or another CRM that takes a contacts CSV.
+async function exportContactsCsv() {
+  let note = "";
+  if (window.INVESTORS_API) { try { await loadInv(); } catch (e) { note = " (could not refresh from the database, so this is what was on screen)"; } }
+  const rows = [];
+  for (const i of INV) {
+    if (i.suppressed) continue; // asked to be removed: never exported
+    const firm = [i.website, i.type, i.hq, fit(i).t, i.approval ? "yes" : "no"];
+    if (i.decisionMakers.length) i.decisionMakers.forEach(d => rows.push([i.name, d.name, d.title, d.email, d.linkedin, ...firm]));
+    else if (i.contactEmail) rows.push([i.name, "", "", i.contactEmail, i.linkedin, ...firm]);
+  }
+  saveCsv("dl3-contacts", ["company", "contact_name", "title", "email", "linkedin", "firm_website", "investor_type", "headquarters", "fit_score", "approved_for_outreach"], rows);
+  S.msg = "Downloaded " + rows.length + " contacts" + note + ". In Agora, use its contacts import and match these columns.";
+  render();
+}
+
 /* ---------- Import (PDF or website) ---------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function importReady() { return !!(window.INVESTORS_API && S.research && S.research.enabled); }
@@ -435,6 +480,7 @@ async function startImportRequest(label, send) {
   S.imp = { busy: true, msg: "Sending " + label + "..." }; render();
   try {
     const r = await send();
+    if (r.status === 401) { location.assign("/login"); return; }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || "The server returned an error (" + r.status + ").");
     S.imp = { busy: true, msg: "Reading " + label + ". This can take a minute or two." }; render();
@@ -513,7 +559,9 @@ function vImport() {
     <div class="row"><input id="imp_url" placeholder="https://" style="min-width:260px" ${off}><button class="primary" onclick="importSite()" ${busy}>Read website</button></div></div>
   <div class="card"><h2>Export</h2>
     <p class="muted">Download the whole list as a CSV file that opens in Excel or Google Sheets. It includes scores, fit, sources, review status and notes.</p>
-    <button onclick="exportCsv()">Download CSV</button></div>`;
+    <button onclick="exportCsv()">Download CSV</button>
+    <p class="muted" style="margin-top:12px">For Agora: one row per contact (firm, name, title, email, LinkedIn). Investors who asked to be removed are left out.</p>
+    <button onclick="exportContactsCsv()">Download contacts for Agora</button></div>`;
 }
 
 /* ---------- Views ---------- */
@@ -525,7 +573,8 @@ function render() {
   else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
   else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;
   else if (INV.length === 0) top = `<div class="card"><p>The shared list is empty. Load the 25 research investors once:</p><button class="primary" onclick="seedShared()" ${can("edit") ? "" : "disabled"}>Load research investors</button></div>`;
-  const notice = S.msg ? `<div class="notice">${esc(S.msg)}</div>` : "";
+  if (window.INVESTORS_API && S.auth && !S.auth.required && !S.loading) top = '<div class="notice"><strong>No team password is set.</strong> Anyone with this address can view and change everything. Add a team password in Render (the TEAM_PASSWORD setting) to lock the tool.</div>' + top;
+  const notice = S.msg ? `<div class="notice msg">${esc(S.msg)}</div>` : "";
   document.getElementById("app").innerHTML = top + notice + (S.loading ? "" : views[S.tab]());
 }
 
@@ -533,6 +582,7 @@ function render() {
 const OUTREACH_STAGES = ["contacted", "meeting scheduled", "in diligence", "committed"];
 const VIEWS = [
   ["all", "All", () => true],
+  ["meets", "Meets criteria", i => fit(i).t >= FIT_THRESHOLD],
   ["confirm", "To confirm", i => i.review === "pending"],
   ["fix", "Needs fixing", i => flags(i).length > 0],
   ["ready", "Ready for outreach", i => i.stage === "approved for outreach"],
@@ -555,7 +605,7 @@ function flagChipsShort(i, n) {
 function listHtml() {
   const rows = filtered().map(i => `<tr style="cursor:pointer" onclick="selectInv('${esc(i.id)}')">
     <td data-label="Investor"><strong>${esc(i.name)}</strong><div class="muted" style="font-size:12px">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div></td>
-    <td data-label="Fit">${fit(i).t}</td>
+    <td data-label="Fit">${fit(i).t}${fit(i).t < FIT_THRESHOLD ? `<div class="muted" style="font-size:12px">below ${FIT_THRESHOLD}</div>` : ""}</td>
     <td data-label="Status">${i.review === "pending" ? "To confirm" : "Confirmed"} · ${esc(conf(i))} confidence</td>
     <td data-label="Stage">${esc(i.stage)}</td>
     <td data-label="To fix">${flagChipsShort(i, 2)}</td></tr>`).join("");
@@ -626,6 +676,11 @@ function detail(i) {
     + (pending ? aiBtn : "");
   const facts = [["Strategy", esc(i.strategy)], ["Equity check", esc(i.check)], ["Prior deals", i.deals.map(d => esc(d)).join("<br>")]].filter(x => x[1]);
   const open = k => (S.open[k] ? "open" : "") + ` ontoggle="S.open.${k}=this.open"`;
+  const removal = window.INVESTORS_API && i.rid ? `<details class="card" ${open("remove")}><summary><strong>Remove from the database</strong></summary><div style="margin-top:8px">${S.auth && S.auth.required
+    ? `<p>This permanently deletes <strong>${esc(i.name)}</strong> and every outreach entry logged for them. It cannot be undone. Only do this if the investor has asked to be removed.</p>
+       <label><input type="checkbox" id="rm_ok"> I confirm this investor has asked to be removed from the database</label>
+       <div class="row" style="margin-top:8px"><button class="dangerbtn" onclick="removeInvestor('${esc(i.id)}')">Remove permanently</button></div>`
+    : `<p class="muted">Removing an investor needs the team password to be set up first.</p>`}</div></details>` : "";
   const edit = `
     <h3 style="margin:0 0 6px">Scores</h3>${scTable}
     <h3>Details</h3>
@@ -664,14 +719,15 @@ function detail(i) {
   <details class="card" ${open("sources")}><summary><strong>Sources</strong> <span class="muted">(${i.sources.length})</span></summary><div style="margin-top:8px">${src}</div></details>
   <details class="card" ${open("intro")}><summary><strong>Introduction paths</strong> <span class="muted">(${i.rel.length})</span></summary><div style="margin-top:8px">${rel}</div></details>
   <details class="card" ${open("edit")}><summary><strong>Edit scores and details</strong></summary><div style="margin-top:8px">${edit}</div></details>
-  <details class="card" ${open("history")}><summary><strong>History</strong></summary><div style="margin-top:8px">${hist}</div></details>`;
+  <details class="card" ${open("history")}><summary><strong>History</strong></summary><div style="margin-top:8px">${hist}</div></details>
+  ${removal}`;
 }
 
 function vAbout(){
   const w=CRIT.map(c=>`<tr><td>${esc(c.label)}</td><td>${S.weights[c.k]}</td></tr>`).join("");
   const req=[
     ["1. Purpose and scope","Research investors with the full workflow: find, review, reach out","Demonstrated"],
-    ["2. Users and roles","Everyone on the team can view and edit; approvals record who gave them","Partial: no sign-in yet"],
+    ["2. Users and roles","One shared team password; everyone with it can view, edit and approve, and approvals record the typed name","Partial: one shared password, not a sign-in per person"],
     ["3. Core data","Type, HQ, contacts, strategy, check range, deals, scores, sources, owner, approval, follow-up, notes","Demonstrated"],
     ["4. Data quality and provenance","Dated sources, confidence from source dates, flags with fixes, duplicate blocking","Demonstrated"],
     ["5. Scoring and ranking","Weighted criteria with anchors, deal cap, ranked list with filters, review step before an investor counts","Demonstrated"],
@@ -680,20 +736,26 @@ function vAbout(){
     ["8. Activity logging","Every touch logged with date, channel, person, summary and next step","Demonstrated"],
     ["9. Follow-up and reminders","Suggested follow-up dates, overdue and due-today lists","Demonstrated; the 30-day inactivity threshold is a placeholder"],
     ["10. Import and export","PDF and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
-    ["11. Privacy, security, compliance","Suppression flag; contacts only as entered; no sign-in","Partial: anyone with the address can use it"],
+    ["11. Privacy, security, compliance","Team password; an investor can be removed permanently on request; suppression flag; contacts only as entered","Partial: one shared password"],
     ["12. Reporting and dashboard","Counts at the top of the Investors page that lead to the investors behind them, search, views, groups","Demonstrated; time saved is not measured"],
     ["13. Technical requirements","Web page and server on Render with a Postgres database; data saved and exportable","Demonstrated"],
     ["14. Items to confirm","Listed below","Open, pending DL3"]
   ];
   const confirm=[
-    "Current CRM, database, and contact-record access",
-    "Equity check range and eligible investor types",
-    "Who can approve outreach (there is no sign-in yet)",
-    "Who should see relationship data once there is a sign-in",
-    "Outreach cadence and inactivity threshold (30 days is a placeholder)",
-    "Meets-criteria threshold (70 is a placeholder)",
-    "Data retention and removal policy",
+    "How DL3's Agora account and this tool should connect (Agora's API is not publicly documented; a contacts CSV import works today)",
+    "Each project's own equity target and check range, inside DL3's overall $5M to $250M",
+    "Who holds the team password and how often it should change",
+    "How long to keep investor and contact data (removal on request is built)",
     "Pilot acceptance targets"
+  ];
+  const decided=[
+    "Every investor type is eligible: family offices, institutions and qualified purchasers",
+    "DL3's overall equity check range is $5M to $250M; it differs by project",
+    "Everyone with the team password can approve outreach; the approval records the typed name",
+    "Everyone with the team password sees everything",
+    "Follow-ups: Hot 2 days, Warm 5, Lukewarm 10, No reply 7, Committed 7. Inactive after 30 days. After 3 unanswered attempts, try another approach",
+    "Investors below a fit of 70 are still shown, marked as below the criteria",
+    "An investor can be removed permanently, after confirming they asked to be removed"
   ];
   return `
   <div class="card"><h2>How the tool works</h2>
@@ -704,12 +766,15 @@ function vAbout(){
     <ul>
       <li>Each criterion is scored 0 to 5. Points equal score times weight, divided by 5. Points total up to 100.</li>
       <li>5 means strong, verified evidence. 3 means partial or indirect. 1 means weak or inferred. 0 means no evidence or conflicting evidence.</li>
+      <li>Equity check fit is judged against DL3's overall range of $5M to $250M. Each project has its own target within it.</li>
       <li>If there are no verified deals, the fit score is held at 60 until a deal is added.</li>
+      <li>Investors below a fit of 70 are still shown, marked as below the criteria.</li>
       <li>Confidence is separate: High means two or more dated sources from the past 24 months, Medium means at least one dated source, Low means self-reported or no dated source.</li>
     </ul>
     <div class="wrap"><table><thead><tr><th>Criterion</th><th>Weight</th></tr></thead><tbody>${w}</tbody></table></div>
     <div class="muted" style="margin-top:6px">The weights are fixed for now.</div></div>
   <details class="card"><summary><strong>Requirements check</strong> (the original pilot spec)</summary>${table(["Section","How this tool shows it","Status"],req)}</details>
+  <details class="card"><summary><strong>Decisions already made</strong></summary><ul>${decided.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>
   <details class="card"><summary><strong>Still to confirm with DL3</strong></summary><ul>${confirm.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>`;
 }
 
