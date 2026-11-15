@@ -52,10 +52,10 @@ export function sanitizeFirms(text, existingNames, { label, sourceUrl = "", kind
     };
     const hq = clip(f.hq, 160), strategy = clip(f.strategy, 400), check = clip(f.check_size, 120), site = httpsUrl(f.website);
     const c = f.contact && typeof f.contact === "object" && !Array.isArray(f.contact) ? f.contact : null;
-    if (c) { // a contact needs a name and a usable email or LinkedIn link
+    if (c) { // a contact needs a name; an email or LinkedIn link is kept only if it is valid
       const cname = clip(c.name, 160), ctitle = clip(c.title, 160), cemail = clip(c.email, 160), cli = typeof c.linkedin === "string" ? cleanLinkedIn(c.linkedin) : "";
       const goodEmail = cemail && validEmail(cemail) ? cemail : "";
-      if (cname && (goodEmail || cli)) data.decision_text = [cname, ctitle, goodEmail, cli].join(" | ");
+      if (cname) data.decision_text = [cname, ctitle, goodEmail, cli].join(" | ");
     }
     if (hq) data.hq = hq;
     if (strategy) data.strategy = strategy;

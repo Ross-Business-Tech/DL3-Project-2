@@ -63,17 +63,30 @@ const FLAG_CATALOG = [
     apply: i => { i.type = val("fx1"); return { msg: "type set to " + i.type }; } },
 
   { key: "contact", label: "No contact yet", test: i => realContacts(i).length === 0,
-    help: "Add a person at the firm, with their role and an email or a LinkedIn link, so the team can reach them.",
+    help: "Add a person at the firm and their role. An email or LinkedIn link is optional, but the contact cannot be reached without one.",
     save: "Add contact",
-    form: () => `<div class="formgrid"><label>Name<input id="fx1" placeholder="Name of the contact"></label><label>Title<input id="fx2" placeholder="e.g. Head of acquisitions"></label><label>Email<input id="fx3" type="email" placeholder="name@firm.com"></label><label>LinkedIn link<input id="fx4" placeholder="https://www.linkedin.com/in/..."></label></div><div class="muted" style="margin-top:4px">Add an email, a LinkedIn link, or both.</div>`,
+    form: () => `<div class="formgrid"><label>Name<input id="fx1" placeholder="Name of the contact"></label><label>Title<input id="fx2" placeholder="e.g. Head of acquisitions"></label><label>Email<input id="fx3" type="email" placeholder="name@firm.com"></label><label>LinkedIn link<input id="fx4" placeholder="https://www.linkedin.com/in/..."></label></div><div class="muted" style="margin-top:4px">Email and LinkedIn are optional. Without one, the contact shows as needing a way to be reached.</div>`,
     apply: i => {
       const name = cleanText(val("fx1"), 160), title = cleanText(val("fx2"), 160), emailRaw = cleanText(val("fx3"), 160), liRaw = cleanText(val("fx4"), 300);
       if (!name) return { error: "Enter the contact's name." };
-      if (!emailRaw && !liRaw) return { error: "Add an email or a LinkedIn link so the contact can be reached." };
       let email = "", linkedin = "";
       if (emailRaw) { if (!validEmail(emailRaw)) return { error: "That email address does not look right." }; email = emailRaw; }
       if (liRaw) { linkedin = cleanLinkedIn(liRaw); if (!linkedin) return { error: "The LinkedIn link must be a linkedin.com address, such as https://www.linkedin.com/in/name." }; }
       i.decisionMakers = realContacts(i).concat([{ name, title, email, linkedin, src: "" }]); return { msg: "contact added" };
+    } },
+
+  { key: "reach", label: "Contact has no email or LinkedIn", test: i => realContacts(i).length > 0 && !realContacts(i).some(d => d.email || d.linkedin) && !i.contactEmail,
+    help: "There is a contact, but nothing to reach them with yet. Add an email or a LinkedIn link.",
+    save: "Save",
+    form: i => `<div class="formgrid"><label>Which contact<select id="fx1">${realContacts(i).map((d, k) => `<option value="${k}">${esc(d.name)}</option>`).join("")}</select></label><label>Email<input id="fx2" type="email" placeholder="name@firm.com"></label><label>LinkedIn link<input id="fx3" placeholder="https://www.linkedin.com/in/..."></label></div>`,
+    apply: i => {
+      const d = realContacts(i)[+val("fx1")], e = cleanText(val("fx2"), 160), l = cleanText(val("fx3"), 300);
+      if (!d) return { error: "Choose a contact." };
+      if (!e && !l) return { error: "Add an email or a LinkedIn link." };
+      if (e && !validEmail(e)) return { error: "That email address does not look right." };
+      let li = ""; if (l) { li = cleanLinkedIn(l); if (!li) return { error: "The LinkedIn link must be a linkedin.com address, such as https://www.linkedin.com/in/name." }; }
+      if (e) d.email = e; if (li) d.linkedin = li;
+      return { msg: "contact details added" };
     } },
 
   { key: "website", label: "No website yet", test: i => !i.website && !i.noWebsite,

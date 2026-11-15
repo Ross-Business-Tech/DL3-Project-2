@@ -31,14 +31,14 @@ test("sanitize firms: builds pending records with no scores and keeps only state
   assert.equal(out.skippedIndividuals, 2);
 });
 
-test("sanitize firms: keeps a contact only with a name and a usable email or LinkedIn link", () => {
+test("sanitize firms: keeps a named contact, and an email or LinkedIn link only when it is valid", () => {
   const run = contact => sanitizeFirms(firms([{ name: "Acme", contact }]), [], ctx).records[0];
   assert.equal(run({ name: "Pat", title: "Head", email: "pat@acme.example", linkedin: null }).decision_text, "Pat | Head | pat@acme.example | ");
   assert.equal(run({ name: "Pat", title: null, email: null, linkedin: "https://www.linkedin.com/in/pat" }).decision_text, "Pat |  |  | https://www.linkedin.com/in/pat");
-  assert.equal(run({ name: "Pat", email: "not an email", linkedin: null }).decision_text, undefined, "bad email");
-  assert.equal(run({ name: "Pat" }).decision_text, undefined, "no way to reach them");
+  assert.equal(run({ name: "Pat", email: "not an email", linkedin: null }).decision_text, "Pat |  |  | ", "bad email is dropped, the name stays");
+  assert.equal(run({ name: "Pat" }).decision_text, "Pat |  |  | ", "a name alone is kept");
   assert.equal(run({ email: "pat@acme.example" }).decision_text, undefined, "no name");
-  assert.equal(run({ name: "Pat", linkedin: "https://evil.example/in/pat" }).decision_text, undefined, "not LinkedIn");
+  assert.equal(run({ name: "Pat", linkedin: "https://evil.example/in/pat" }).decision_text, "Pat |  |  | ", "a link that is not LinkedIn is dropped");
   assert.equal(run("Pat").decision_text, undefined);
   assert.equal(run(null).decision_text, undefined);
 });
