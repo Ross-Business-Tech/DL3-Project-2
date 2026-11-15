@@ -72,14 +72,16 @@ projects and saves nothing.
 Set `TEAM_PASSWORD` in Render (service > **Environment**) and redeploy. Everyone then signs in with that one password
 before they can see the page or any data; a **Sign out** button appears at the top. Sessions last 30 days, and
 changing the password signs everyone out. After 10 wrong tries from one place, sign-in waits 15 minutes.
-Without `TEAM_PASSWORD` the tool is open to anyone with the address (the page says so at the top), and removing an
-investor is switched off. Never put the password in the code, in GitHub, or in a chat.
+Without `TEAM_PASSWORD` the tool is open to anyone with the address, and the page says so at the top. Never put the
+password in the code, in GitHub, or in a chat.
 
 ## Removing an investor
 
-An investor's page has **Remove from the database**. It needs the team password to be on, a ticked box confirming the
-investor asked to be removed, and a final yes. It permanently deletes the investor and every outreach entry logged for
-them. It cannot be undone, and importing the same PDF or website again would add the firm back as a new investor.
+An investor's page has **Remove from the database**. It needs a ticked box confirming the investor asked to be removed
+and a final yes, and it is limited to 10 removals an hour from one place. It permanently deletes the investor and every
+outreach entry logged for them, and records the name typed at the top of the page in the server log. It cannot be undone,
+and importing the same PDF or website again would add the firm back as a new investor. With no team password, anyone
+with the tool's address could remove an investor, so turn the password on before sharing the address widely.
 
 ## Connecting to Agora
 

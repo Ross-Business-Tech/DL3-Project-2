@@ -29,15 +29,31 @@ const req = (base, method, path, { body, cookie, origin } = {}) => fetch(base + 
 });
 const cookieFrom = r => (r.headers.get("set-cookie") || "").split(";")[0];
 
-test("without a team password the tool is open, but removal is refused", { skip: !url && "TEST_DATABASE_URL not set" }, () => withApp("", async base => {
+test("without a team password the tool is open, and removal still needs confirmation", { skip: !url && "TEST_DATABASE_URL not set" }, () => withApp("", async base => {
   assert.deepEqual(await (await req(base, "GET", "/api/session")).json(), { required: false, signedIn: true });
   assert.equal((await req(base, "GET", "/api/investors")).status, 200);
   assert.equal((await req(base, "GET", "/")).status, 200);
   const made = await (await req(base, "POST", "/api/investors", { body: { name: "Open Mode Co" } })).json();
-  const del = await req(base, "DELETE", `/api/investors/${made.record.id}`, { body: { confirmed: true } });
-  assert.equal(del.status, 403);
-  assert.match((await del.json()).error, /needs the team password/);
-  assert.equal((await req(base, "GET", `/api/investors/${made.record.id}`)).status, 200, "still there");
+  const id = made.record.id;
+  assert.equal((await req(base, "DELETE", `/api/investors/${id}`)).status, 400, "no confirmation");
+  assert.equal((await req(base, "DELETE", `/api/investors/${id}`, { body: { confirmed: "yes" } })).status, 400, "only true counts");
+  assert.equal((await req(base, "DELETE", `/api/investors/${id}`, { body: { confirmed: true }, origin: "https://evil.example" })).status, 403);
+  assert.equal((await req(base, "GET", `/api/investors/${id}`)).status, 200, "still there");
+  await req(base, "POST", "/api/outreach", { body: { investor_rid: id, investor_name: "Open Mode Co", interest: "Warm" } });
+  const done = await req(base, "DELETE", `/api/investors/${id}`, { body: { confirmed: true, by: "Jordan <script>" } });
+  assert.equal(done.status, 200);
+  assert.deepEqual(await done.json(), { deleted: true, outreachRemoved: 1 });
+  assert.equal((await req(base, "GET", `/api/investors/${id}`)).status, 404);
+}));
+
+test("removals are limited to ten an hour from one place", { skip: !url && "TEST_DATABASE_URL not set" }, () => withApp("", async base => {
+  const ids = [];
+  for (let i = 0; i < 12; i++) ids.push((await (await req(base, "POST", "/api/investors", { body: { name: "Bulk " + i } })).json()).record.id);
+  const codes = [];
+  for (const id of ids) codes.push((await req(base, "DELETE", `/api/investors/${id}`, { body: { confirmed: true } })).status);
+  assert.equal(codes.filter(c => c === 200).length, 10);
+  assert.equal(codes.filter(c => c === 429).length, 2);
+  assert.equal((await (await req(base, "GET", "/api/investors")).json()).records.length, 2, "the last two are still there");
 }));
 
 test("with a team password, everything but the sign-in page is locked", { skip: !url && "TEST_DATABASE_URL not set" }, () => withApp(PW, async base => {

@@ -336,7 +336,7 @@ async function removeInvestor(id) {
   if (!ok || !ok.checked) { S.msg = "Tick the box to confirm that " + i.name + " has asked to be removed."; render(); return; }
   if (!window.confirm("Permanently remove " + i.name + " and all their outreach entries from the database? This cannot be undone.")) return;
   try {
-    const r = await api("DELETE", COL + "/" + i.rid, { confirmed: true });
+    const r = await api("DELETE", COL + "/" + i.rid, { confirmed: true, by: S.who });
     INV = INV.filter(x => x !== i);
     T.outreach = T.outreach.filter(o => o.investor_rid !== i.rid);
     S.selected = null; S.open.remove = false;
@@ -676,11 +676,10 @@ function detail(i) {
     + (pending ? aiBtn : "");
   const facts = [["Strategy", esc(i.strategy)], ["Equity check", esc(i.check)], ["Prior deals", i.deals.map(d => esc(d)).join("<br>")]].filter(x => x[1]);
   const open = k => (S.open[k] ? "open" : "") + ` ontoggle="S.open.${k}=this.open"`;
-  const removal = window.INVESTORS_API && i.rid ? `<details class="card" ${open("remove")}><summary><strong>Remove from the database</strong></summary><div style="margin-top:8px">${S.auth && S.auth.required
-    ? `<p>This permanently deletes <strong>${esc(i.name)}</strong> and every outreach entry logged for them. It cannot be undone. Only do this if the investor has asked to be removed.</p>
+  const removal = window.INVESTORS_API && i.rid ? `<details class="card" ${open("remove")}><summary><strong>Remove from the database</strong></summary><div style="margin-top:8px"><p>This permanently deletes <strong>${esc(i.name)}</strong> and every outreach entry logged for them. It cannot be undone. Only do this if the investor has asked to be removed.</p>
        <label><input type="checkbox" id="rm_ok"> I confirm this investor has asked to be removed from the database</label>
-       <div class="row" style="margin-top:8px"><button class="dangerbtn" onclick="removeInvestor('${esc(i.id)}')">Remove permanently</button></div>`
-    : `<p class="muted">Removing an investor needs the team password to be set up first.</p>`}</div></details>` : "";
+       <div class="row" style="margin-top:8px"><button class="dangerbtn" onclick="removeInvestor('${esc(i.id)}')">Remove permanently</button></div>
+       ${S.auth && !S.auth.required ? `<p class="muted" style="margin-top:8px">There is no team password, so anyone with this address could do this. Your name is recorded in the server log.</p>` : ""}</div></details>` : "";
   const edit = `
     <h3 style="margin:0 0 6px">Scores</h3>${scTable}
     <h3>Details</h3>
@@ -736,7 +735,7 @@ function vAbout(){
     ["8. Activity logging","Every touch logged with date, channel, person, summary and next step","Demonstrated"],
     ["9. Follow-up and reminders","Suggested follow-up dates, overdue and due-today lists","Demonstrated; the 30-day inactivity threshold is a placeholder"],
     ["10. Import and export","PDF and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
-    ["11. Privacy, security, compliance","Team password; an investor can be removed permanently on request; suppression flag; contacts only as entered","Partial: one shared password"],
+    ["11. Privacy, security, compliance","Optional team password; an investor can be removed permanently on request; suppression flag; contacts only as entered","Partial: one shared password"],
     ["12. Reporting and dashboard","Counts at the top of the Investors page that lead to the investors behind them, search, views, groups","Demonstrated; time saved is not measured"],
     ["13. Technical requirements","Web page and server on Render with a Postgres database; data saved and exportable","Demonstrated"],
     ["14. Items to confirm","Listed below","Open, pending DL3"]
@@ -755,7 +754,7 @@ function vAbout(){
     "Everyone with the team password sees everything",
     "Follow-ups: Hot 2 days, Warm 5, Lukewarm 10, No reply 7, Committed 7. Inactive after 30 days. After 3 unanswered attempts, try another approach",
     "Investors below a fit of 70 are still shown, marked as below the criteria",
-    "An investor can be removed permanently, after confirming they asked to be removed"
+    "An investor can be removed permanently, after confirming they asked to be removed (this works with or without the team password)"
   ];
   return `
   <div class="card"><h2>How the tool works</h2>

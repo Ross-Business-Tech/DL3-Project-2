@@ -24,7 +24,7 @@ services:
       - key: AI_CHECK_RANGE # DL3's overall equity check range; each project has its own target inside it
         value: "$5M to $250M"
       # The team password. Everyone signs in with it. Without it the tool is open to anyone with the address,
-      # and removing an investor is switched off. Set it in Render's Environment tab, never in this file.
+      # and the page warns about it. Set it in Render's Environment tab, never in this file.
       - key: TEAM_PASSWORD
         sync: false
 

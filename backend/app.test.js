@@ -45,7 +45,7 @@ test("API end to end", { skip: !url && "TEST_DATABASE_URL not set" }, async t =>
   assert.equal((await call("POST", "/api/investors", { name: "x", evil: 1 })).status, 400);
   assert.equal((await call("PATCH", "/api/investors/rec_00000000000000000000000000", { notes: "x" })).status, 404);
   assert.equal((await call("GET", "/api/investors/not-an-id")).status, 404);
-  assert.equal((await call("DELETE", `/api/investors/${id}`, { confirmed: true })).status, 403); // removal needs the team password to be set up
+  assert.equal((await call("DELETE", `/api/investors/${id}`, {})).status, 400); // removal must be confirmed
 
   // paging: 3 more records, page size 2
   for (const n of ["B", "C", "D"]) await call("POST", "/api/investors", { name: n });

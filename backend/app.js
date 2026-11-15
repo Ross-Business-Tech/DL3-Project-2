@@ -341,10 +341,11 @@ export function createApp(pool) {
     });
 
     if (col === "investors") {
-      // Permanent removal, for an investor who asked to be removed. Needs the team password, and the request
-      // must say it is confirmed. The investor's outreach entries go too.
-      app.delete("/api/investors/:id", colWrites, async (req, res) => {
-        if (!authOn) return res.status(403).json({ error: "Removing an investor needs the team password to be set up first." });
+      // Permanent removal, for an investor who asked to be removed. The request must say it is confirmed, and
+      // removals are limited to 10 an hour from one place. The investor's outreach entries go too.
+      // (With a team password on, only signed-in people can reach this at all.)
+      const removeLimit = limiter({ windowMs: 3600_000, max: 10 });
+      app.delete("/api/investors/:id", removeLimit, async (req, res) => {
         if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
         if (!req.body || req.body.confirmed !== true) return res.status(400).json({ error: "Confirm the removal first." });
         const db = await pool.connect();
@@ -354,7 +355,8 @@ export function createApp(pool) {
           if (!gone.rowCount) { await db.query("rollback"); return res.status(404).json({ error: "Not found." }); }
           const out = await db.query("delete from outreach where data->>'investor_rid' = $1", [req.params.id]);
           await db.query("commit");
-          console.log("investor removed:", req.params.id, "outreach entries removed:", out.rowCount);
+          const by = typeof req.body.by === "string" ? req.body.by.replace(/[^\p{L}\p{N} .'-]/gu, "").slice(0, 60) : "";
+          console.log("investor removed:", req.params.id, "outreach entries removed:", out.rowCount, by ? "by " + by : "");
           res.json({ deleted: true, outreachRemoved: out.rowCount });
         } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
       });
