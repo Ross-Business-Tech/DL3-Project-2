@@ -142,6 +142,10 @@
     },
     "no_website": {
      "type": "boolean"
+    },
+    "extra_scores": {
+     "type": "string",
+     "maxLength": 1500
     }
    },
    "access": {
@@ -248,6 +252,36 @@
    },
    "publicMutation": "open",
    "rateLimit": "120/hour/ip"
+  },
+  "settings": {
+   "fields": {
+    "kind": {
+     "type": "string",
+     "required": true,
+     "maxLength": 40,
+     "trim": true
+    },
+    "config": {
+     "type": "string",
+     "maxLength": 6000
+    },
+    "updated_by": {
+     "type": "string",
+     "maxLength": 80
+    },
+    "updated": {
+     "type": "string",
+     "maxLength": 40
+    }
+   },
+   "access": {
+    "read": "public",
+    "insert": "public",
+    "update": "public",
+    "delete": "owner"
+   },
+   "publicMutation": "open",
+   "rateLimit": "60/hour/ip"
   }
  }
 }

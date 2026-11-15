@@ -104,7 +104,7 @@ details.card>summary{cursor:pointer}
 <script>
 /* ---------- Constants ---------- */
 const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30, FIT_THRESHOLD=70;
-const CRIT=[
+const BASE_CRIT=[
   {k:"chicago",label:"Chicago interest"},
   {k:"mf",label:"Mixed-income / multifamily experience"},
   {k:"check",label:"Equity check size"},
@@ -112,6 +112,8 @@ const CRIT=[
   {k:"evidence",label:"Evidence of relevant deals"},
   {k:"capital",label:"Capital capacity and investor type"}
 ];
+const DEFAULT_WEIGHTS={chicago:20,mf:20,check:20,strategy:15,evidence:15,capital:10};
+let CRIT=BASE_CRIT.slice(); // the six built-in criteria plus any the team added
 const TYPES=["Family office","Institutional","Qualified purchaser","Unclassified"];
 const STAGES=["identified","researched","scored","reviewed","approved for outreach","contacted","meeting scheduled","in diligence","committed","passed","archived"];
 const PRE_APPROVAL=["identified","researched","scored","reviewed"];
@@ -119,7 +121,7 @@ const CLOSED=["committed","passed","archived"];
 /* ---------- State ---------- */
 const S={
   tab:"Prospects", selected:null, msg:"", who:"", view:"all", q:"", showAdd:false, open:{},
-  weights:{chicago:20,mf:20,check:20,strategy:15,evidence:15,capital:10},
+  weights:Object.assign({},DEFAULT_WEIGHTS),
   filters:{minFit:0,conf:"",type:"",stage:""}
 };
 /* The person using the page types their name once; it is kept in this browser and shown on what they change. */
@@ -185,10 +187,13 @@ function val(id){return document.getElementById(id).value}
 function days(a,b){return (Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/864e5}
 function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9]/g,"")}
 function findDup(name){return INV.find(x=>norm(x.name)===norm(name))}
+function wsum(){return CRIT.reduce((a,c)=>a+S.weights[c.k],0)}
+function share(k){const W=wsum();return W>0?Math.round(S.weights[k]*100/W):0}
 function fit(i){
   let raw=0;
-  CRIT.forEach(c=>raw+=i.scores[c.k]*S.weights[c.k]/5);
-  let t=Math.round(raw), capped=false;
+  CRIT.forEach(c=>raw+=(i.scores[c.k]|0)*S.weights[c.k]/5);
+  const W=wsum();
+  let t=W>0?Math.round(raw*100/W):0, capped=false;
   if(i.scores.evidence===0&&t>60){t=60;capped=true}
   return {t,capped};
 }
@@ -306,11 +311,17 @@ function parseDM(text) {
 }
 function sourcesText(i) { return i.sources.map(s => [s.label, s.url, s.accessed, s.published || ""].join(" | ")).join("\n"); }
 function dmText(i) { return i.decisionMakers.map(d => [d.name, d.title, d.email || "", d.linkedin || ""].join(" | ")).join("\n"); }
+function parseExtra(t) {
+  const o = {};
+  String(t || "").split(";").forEach(p => { const m = /^(x[a-z0-9]{3,10})=([0-5])$/.exec(p.trim()); if (m) o[m[1]] = +m[2]; });
+  return o;
+}
 function toRec(i) {
   const sc = i.scores || {};
   return {
     name: i.name || "", type: i.type || "", hq: i.hq || "", strategy: i.strategy || "", check_size: i.check || "",
     s_chicago: sc.chicago | 0, s_mf: sc.mf | 0, s_check: sc.check | 0, s_strategy: sc.strategy | 0, s_evidence: sc.evidence | 0, s_capital: sc.capital | 0,
+    extra_scores: Object.keys(sc).filter(k => /^x[a-z0-9]{3,10}$/.test(k)).map(k => k + "=" + Math.min(5, Math.max(0, sc[k] | 0))).join(";"),
     sources_text: sourcesText(i), decision_text: dmText(i), deals_text: (i.deals || []).join("\n"),
     stage: i.stage || "", owner: i.owner || "", approval_by: i.approval ? i.approval.by : "", approval_date: i.approval ? i.approval.date : "",
     next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
@@ -324,7 +335,7 @@ function fromRec(r, k) {
   return {
     id: "INV-" + String(k + 1).padStart(3, "0"), rid: r.id, name: d.name || "", type: d.type || "Unclassified", hq: d.hq || "",
     strategy: d.strategy || "", check: d.check_size || "",
-    scores: { chicago: d.s_chicago | 0, mf: d.s_mf | 0, check: d.s_check | 0, strategy: d.s_strategy | 0, evidence: d.s_evidence | 0, capital: d.s_capital | 0 },
+    scores: Object.assign({ chicago: d.s_chicago | 0, mf: d.s_mf | 0, check: d.s_check | 0, strategy: d.s_strategy | 0, evidence: d.s_evidence | 0, capital: d.s_capital | 0 }, parseExtra(d.extra_scores)),
     selfReported: !!d.self_reported, sources: parseSources(d.sources_text), decisionMakers: parseDM(d.decision_text), deals: lines(d.deals_text),
     stage: d.stage || "identified", owner: d.owner || "Unassigned", approval: d.approval_by ? { by: d.approval_by, date: d.approval_date } : null,
     next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: lines(d.intro_text).map(l => { const p = l.split("|").map(x => x.trim()); return { holder: p[0] || "", knows: p[1] || "", confirmed: p[2] || "" }; }), notes: d.notes || "", acts: [], history: [],
@@ -340,6 +351,45 @@ async function loadInv() {
     all.push(...(r.records || [])); cursor = r.nextCursor || "";
   } while (cursor);
   INV = all.map((r, k) => fromRec(r, k));
+}
+/* ---------- Scoring settings: weights and extra criteria, shared by the whole team ---------- */
+const setCol = () => COL.replace(/investors$/, "settings");
+const cleanCrit = v => String(v || "").replace(/[|\r\n<>]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+const goodWeight = v => Number.isInteger(v) && v >= 0 && v <= 100;
+function applyScoring(cfg) { // checks what came from the database before using it
+  const w = Object.assign({}, DEFAULT_WEIGHTS), extra = [];
+  if (cfg && typeof cfg === "object") {
+    BASE_CRIT.forEach(c => { if (cfg.weights && goodWeight(cfg.weights[c.k])) w[c.k] = cfg.weights[c.k]; });
+    (Array.isArray(cfg.custom) ? cfg.custom : []).slice(0, 12).forEach(c => {
+      const label = c && cleanCrit(c.label);
+      if (c && /^x[a-z0-9]{3,10}$/.test(c.k) && label && goodWeight(c.weight) && !extra.some(e => e.k === c.k)) { extra.push({ k: c.k, label, custom: true }); w[c.k] = c.weight; }
+    });
+  }
+  CRIT = BASE_CRIT.concat(extra); S.weights = w;
+}
+function scoringConfig() {
+  return { weights: Object.assign({}, S.weights), custom: CRIT.filter(c => c.custom).map(c => ({ k: c.k, label: c.label, weight: S.weights[c.k] })) };
+}
+async function loadScoring() {
+  if (!window.INVESTORS_API) return;
+  try {
+    const r = await api("GET", setCol() + "?limit=100");
+    const rec = (r.records || []).find(x => x.data && x.data.kind === "scoring");
+    if (rec) { S.scoreRid = rec.id; S.scoreBy = rec.data.updated_by || ""; S.scoreAt = rec.data.updated || ""; try { applyScoring(JSON.parse(rec.data.config || "{}")); } catch (e) { applyScoring(null); } }
+  } catch (e) { /* the default weights are used; saving will report the problem */ }
+}
+async function saveScoring(cfg, okText) { // applies, then saves for everyone
+  const before = JSON.stringify(scoringConfig());
+  applyScoring(cfg);
+  if (JSON.stringify(scoringConfig()) === before) return "No changes to save.";
+  if (S.demo || !window.INVESTORS_API) return okText + " (Demo mode: not saved for the team.)";
+  const data = { kind: "scoring", config: JSON.stringify(scoringConfig()), updated_by: who(), updated: new Date().toISOString().slice(0, 16).replace("T", " ") };
+  try {
+    if (S.scoreRid) await api("PATCH", setCol() + "/" + S.scoreRid, data);
+    else { const r = await api("POST", setCol(), data); S.scoreRid = r.record.id; }
+    S.scoreBy = data.updated_by; S.scoreAt = data.updated;
+    return okText;
+  } catch (e) { return "Changed on screen but could not save for the team (" + e.message + "). Try again."; }
 }
 async function persist(i) {
   if (S.demo) return null;
@@ -441,6 +491,7 @@ async function boot() {
     document.getElementById("signOut").hidden = !S.auth.required;
     INV.filter(x => x.aiStatus === "running").forEach(x => pollResearch(x.id, Date.now()));
   }
+  await loadScoring();
   await loadTracker();
   S.loading = false; render();
 }
@@ -457,7 +508,7 @@ async function exportCsv() {
   const head = ["record_id", "name", "type", "hq", "website", "firm_linkedin", "firm_contact_email", "strategy", "check_size",
     "score_chicago", "score_multifamily", "score_check_size", "score_strategy", "score_evidence", "score_capital", "fit", "fit_capped", "confidence",
     "review_status", "stage", "owner", "outreach_approval", "next_follow_up", "flags", "sources", "deals", "contacts", "notes",
-    "ai_status", "ai_summary", "ai_missing", "suppressed"];
+    "ai_status", "ai_summary", "ai_missing", "suppressed"].concat(CRIT.filter(c => c.custom).map(c => "score_" + c.label));
   const rows = INV.map(i => {
     const f = fit(i);
     return [i.rid || i.id, i.name, i.type, i.hq, i.website, i.linkedin, i.contactEmail, i.strategy, i.check,
@@ -465,7 +516,7 @@ async function exportCsv() {
       i.review === "pending" ? "pending" : "confirmed", i.stage, i.owner, i.approval ? i.approval.by + " " + i.approval.date : "none", i.next,
       flags(i).join("; "), i.sources.map(s => `${s.label} ${s.url} (${s.published || "undated"})`).join(" ; "), i.deals.join(" ; "),
       i.decisionMakers.map(d => [d.name, d.title, d.email, d.linkedin].filter(Boolean).join(", ")).join(" ; "), i.notes,
-      i.aiStatus || "", (i.aiSummary || "").replace(/\n/g, " "), (i.aiMissing || "").replace(/\n/g, " "), i.suppressed ? "yes" : "no"];
+      i.aiStatus || "", (i.aiSummary || "").replace(/\n/g, " "), (i.aiMissing || "").replace(/\n/g, " "), i.suppressed ? "yes" : "no"].concat(CRIT.filter(c => c.custom).map(c => i.scores[c.k] | 0));
   });
   const csv = "﻿" + [head.join(","), ...rows.map(r => r.map(csvCell).join(","))].join("\r\n");
   const a = document.createElement("a");
@@ -776,9 +827,9 @@ function nameLink(i){return `<a href="#" onclick="go('Prospects');selectInv('${i
 
 function detail(i) {
   const f = fit(i), W = S.weights, pending = i.review === "pending";
-  const scRows = CRIT.map(c => [esc(c.label), `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === i.scores[c.k] ? "selected" : ""}>${n}</option>`).join("")}</select>`, W[c.k], (i.scores[c.k] * W[c.k] / 5).toFixed(1)]);
-  scRows.push(["Total", `<strong>${f.t}</strong>`, "100", f.capped ? "held at 60 (no verified deals)" : ""]);
-  const scTable = `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const scRows = CRIT.map(c => [esc(c.label), `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === (i.scores[c.k] | 0) ? "selected" : ""}>${n}</option>`).join("")}</select>`, share(c.k) + "%", ((i.scores[c.k] | 0) * W[c.k] / 5 * 100 / Math.max(1, wsum())).toFixed(1)]);
+  scRows.push(["Total", `<strong>${f.t}</strong>`, "100%", f.capped ? "held at 60 (no verified deals)" : ""]);
+  const scTable = `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Share of score</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   const rel = i.rel.length ? i.rel.map(r => `${esc(r.holder)}: ${esc(r.knows)}${r.confirmed ? ", confirmed " + esc(r.confirmed) : ""}`).join("<br>") : "None recorded";
   const src = i.sources.length ? table(["Source", "Link", "Published"], i.sources.map(s => [esc(s.label), /^https:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">open</a>` : esc(s.url), s.published ? esc(s.published) : '<span class="flag">missing</span>'])) : '<div class="muted">No sources yet.</div>';
   const dms = realContacts(i).length ? realContacts(i).map(contactHtml).join("<br>") : '<span class="muted">No contact yet</span>';
@@ -847,8 +898,67 @@ function detail(i) {
   ${removal}`;
 }
 
+function scoringEditor() {
+  const rows = CRIT.map(c => `<tr><td>${esc(c.label)}${c.custom ? ' <span class="muted">(added)</span>' : ""}</td>
+    <td><input type="number" min="0" max="100" step="1" id="w_${c.k}" value="${S.weights[c.k]}" style="width:80px" oninput="liveShare()"></td>
+    <td id="sh_${c.k}">${share(c.k)}%</td>
+    <td>${c.custom ? `<button class="dangerbtn" onclick="removeCriterion('${c.k}')">Remove</button>` : ""}</td></tr>`).join("");
+  const by = S.scoreBy ? `Last changed by ${esc(S.scoreBy)}${S.scoreAt ? " on " + esc(S.scoreAt) : ""}.` : "These are the original weights.";
+  return `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Weight</th><th>Share of score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="muted" style="margin:6px 0">Weights are relative: only their proportions matter, and every investor's score is always out of 100. A weight of 0 switches a criterion off without deleting it. ${by}</div>
+    <div class="row"><button class="primary" onclick="saveWeights()">Save weights</button><button onclick="resetWeights()">Back to the original six weights</button></div>
+    <h3 style="margin:14px 0 6px">Add a criterion</h3>
+    <div class="row"><label>Name <input id="nc_name" maxlength="60" placeholder="e.g. Existing relationship with DL3"></label>
+      <label>Weight <input type="number" min="0" max="100" step="1" id="nc_w" value="10" style="width:80px"></label>
+      <button onclick="addCriterion()">Add criterion</button></div>
+    <div class="muted" style="margin-top:6px">A new criterion is scored 0 to 5 on each investor's page, under Edit scores and details. Until someone scores an investor on it, it counts as 0, so everyone's score may drop at first. The AI research only scores the six original criteria.</div>
+    <div id="scerr" class="bad" role="alert" style="margin-top:6px"></div>`;
+}
+function liveShare() {
+  let tot = 0; CRIT.forEach(c => { const v = parseFloat(val("w_" + c.k)); tot += Number.isFinite(v) && v >= 0 ? v : 0; });
+  CRIT.forEach(c => { const v = parseFloat(val("w_" + c.k)); document.getElementById("sh_" + c.k).textContent = (tot > 0 && Number.isFinite(v) && v >= 0 ? Math.round(v * 100 / tot) : 0) + "%"; });
+}
+function readWeights() { // the numbers typed in the table, or an error
+  const w = {};
+  for (const c of CRIT) {
+    const raw = val("w_" + c.k).trim(), v = Number(raw);
+    if (raw === "" || !Number.isInteger(v) || v < 0 || v > 100) return { error: "Each weight must be a whole number from 0 to 100 (check \"" + c.label + "\")." };
+    w[c.k] = v;
+  }
+  if (!Object.values(w).some(v => v > 0)) return { error: "At least one weight must be above 0." };
+  return { w };
+}
+function scErr(t) { document.getElementById("scerr").textContent = t; }
+async function applyEditor(extraCustom, okText) {
+  const r = readWeights(); if (r.error) return scErr(r.error);
+  const cfg = scoringConfig(); cfg.weights = Object.assign({}, cfg.weights, r.w);
+  cfg.custom = cfg.custom.map(c => ({ k: c.k, label: c.label, weight: r.w[c.k] }));
+  if (extraCustom) cfg.custom.push(extraCustom);
+  S.msg = await saveScoring(cfg, okText); render();
+}
+async function saveWeights() { await applyEditor(null, "Weights saved. Every investor's score now uses them."); }
+async function addCriterion() {
+  const name = cleanCrit(val("nc_name")), raw = val("nc_w").trim(), w = Number(raw);
+  if (!name) return scErr("Give the new criterion a name.");
+  if (CRIT.some(c => c.label.toLowerCase() === name.toLowerCase())) return scErr("There is already a criterion with that name.");
+  if (CRIT.filter(c => c.custom).length >= 12) return scErr("The most you can add is 12 criteria.");
+  if (raw === "" || !Number.isInteger(w) || w < 0 || w > 100) return scErr("The weight must be a whole number from 0 to 100.");
+  const k = "x" + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, "a").padEnd(6, "a");
+  await applyEditor({ k, label: name, weight: w }, "Added \"" + name + "\". Score investors on it from their page, under Edit scores and details.");
+}
+async function removeCriterion(k) {
+  const c = CRIT.find(x => x.k === k); if (!c) return;
+  if (!confirm("Remove the criterion \"" + c.label + "\"? The scores already entered for it are kept in the database but no longer count.")) return;
+  const cfg = scoringConfig(); cfg.custom = cfg.custom.filter(x => x.k !== k); delete cfg.weights[k];
+  S.msg = await saveScoring(cfg, "Removed \"" + c.label + "\"."); render();
+}
+async function resetWeights() {
+  if (!confirm("Set the six original criteria back to their starting weights (20, 20, 20, 15, 15, 10)? Added criteria keep their weights.")) return;
+  const cfg = scoringConfig(); cfg.weights = Object.assign({}, cfg.weights, DEFAULT_WEIGHTS);
+  S.msg = await saveScoring(cfg, "Weights set back to the original six."); render();
+}
 function vAbout(){
-  const w=CRIT.map(c=>`<tr><td>${esc(c.label)}</td><td>${S.weights[c.k]}</td></tr>`).join("");
+  const w=scoringEditor();
   const req=[
     ["1. Purpose and scope","Research investors with the full workflow: find, review, reach out","Demonstrated"],
     ["2. Users and roles","One shared team password; everyone with it can view, edit and approve, and approvals record the typed name","Partial: one shared password, not a sign-in per person"],
@@ -880,6 +990,7 @@ function vAbout(){
     "Everyone with the team password sees everything",
     "Follow-ups: Hot 2 days, Warm 5, Lukewarm 10, No reply 7, Committed 7. Inactive after 30 days. After 3 unanswered attempts, try another approach",
     "Investors below a fit of 70 are still shown, marked as below the criteria",
+    "The team can change each criterion's weight and add criteria; changes apply to everyone",
     "An investor can be removed permanently, after confirming they asked to be removed (this works with or without the team password)"
   ];
   return `
@@ -889,15 +1000,14 @@ function vAbout(){
     <li><strong>Reach out:</strong> approve an investor for outreach, log every email, call and meeting, and follow up on time.</li></ol></div>
   <div class="card"><h2>How the score works</h2>
     <ul>
-      <li>Each criterion is scored 0 to 5. Points equal score times weight, divided by 5. Points total up to 100.</li>
+      <li>Each criterion is scored 0 to 5. Its points are its share of the weights times the score, divided by 5, so the total is always out of 100. The team can change the weights and add criteria below.</li>
       <li>5 means strong, verified evidence. 3 means partial or indirect. 1 means weak or inferred. 0 means no evidence or conflicting evidence.</li>
       <li>Equity check fit is judged against DL3's overall range of $5M to $250M. Each project has its own target within it.</li>
       <li>If there are no verified deals, the fit score is held at 60 until a deal is added.</li>
       <li>Investors below a fit of 70 are still shown, marked as below the criteria.</li>
       <li>Confidence is separate: High means two or more dated sources from the past 24 months, Medium means at least one dated source, Low means self-reported or no dated source.</li>
     </ul>
-    <div class="wrap"><table><thead><tr><th>Criterion</th><th>Weight</th></tr></thead><tbody>${w}</tbody></table></div>
-    <div class="muted" style="margin-top:6px">The weights are fixed for now.</div></div>
+    ${w}</div>
   <details class="card"><summary><strong>Requirements check</strong> (the original pilot spec)</summary>${table(["Section","How this tool shows it","Status"],req)}</details>
   <details class="card"><summary><strong>Decisions already made</strong></summary><ul>${decided.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>
   <details class="card"><summary><strong>Still to confirm with DL3</strong></summary><ul>${confirm.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>`;
