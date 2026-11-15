@@ -23,7 +23,7 @@ What it does and does not do:
 - It only fills empty fields and never overwrites what a person typed. Confirmed investors are never changed.
 - It keeps a source only if the web search really returned that page. A score of 3 or more needs a source, and
   "evidence of deals" is 0 without a sourced deal. Everything it could not find is listed as **Still to check or fill in**.
-- It researches firms only. Decision-makers are not collected.
+- It proposes one point of contact (a name and role, with an email or LinkedIn link) only when a search result shows it. An email must be on the firm's own website domain, and the AI is told never to guess or construct one. A contact a person already entered is never replaced.
 - A person always reviews the result and presses **Confirm record**.
 
 Setup (in Render, service > **Environment**):
@@ -38,7 +38,7 @@ The search tool must also be allowed for the organization that owns the key (Cla
 ## Import from a PDF or a website
 
 The **Import** tab reads a PDF (up to 10 MB) or a web page and adds each firm it lists to the review queue.
-- Only firms are added. Individual people are skipped and counted.
+- Only firms are added. Individual people are skipped and counted, except a named point of contact (with an email or LinkedIn link) the document states for a firm, which is saved as that firm's contact.
 - Details come only from the document and are marked unchecked. Nothing is scored at this step, so imported firms
   rank low until they are researched.
 - Firms already in the list are skipped. One import adds at most 50 firms; run it again for more.
@@ -100,6 +100,17 @@ details). Use Agora's contacts import and match the columns. Investors who asked
 
 The person using the page types their name at the top. It is kept in their browser and recorded on approvals and
 changes. There is no sign-in yet, so anyone with the address can use the tool.
+
+## Websites and points of contact
+
+Every investor should have a company website and a point of contact (an email, a LinkedIn link, or both):
+- The **Add investor** form takes both. Mistakes show inside the form and keep what was typed.
+- Anything missing shows as a flag, **No website yet** or **No contact yet**, each with a **Fix** button. An individual with no
+  website can be marked so. "Contact to confirm" placeholders count as no contact.
+- The list shows each investor's website and contact (or what is missing), and both come through in the CSV and contacts files.
+- Imports and AI research fill them in when the document or a search result shows them.
+- For the research list, **Fill in N websites** on the Investors page adds the websites found by web search (`KNOWN_SITES` in
+  `sites/investor-crm/index.html`). They were checked against the firms' own pages or press releases but should be verified.
 
 ## Groups and flag fixes
 

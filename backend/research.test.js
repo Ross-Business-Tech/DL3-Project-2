@@ -25,6 +25,7 @@ const answer = over => JSON.stringify({
     evidence: { score: 5, reason: "Recent deal.", sources: [1] },
     capital: { score: 3, reason: "Family office.", sources: [1] }
   },
+  contact: { name: "Pat Example", title: "Head of acquisitions", email: "pat@acme.example", linkedin: "https://www.linkedin.com/in/pat-example", source: 1 },
   missing: ["Equity check range is a guess"], ...over
 });
 
@@ -41,9 +42,32 @@ test("sanitize: keeps supported facts, drops invented ones, and lowers unsupport
   assert.equal(data.website, "https://acme.example/");
   assert.equal(data.linkedin, "https://www.linkedin.com/company/acme");
   assert.match(data.ai_summary, /Note: .*dropped/);
-  assert.match(data.ai_missing, /Decision-makers are not collected/);
-  assert.match(data.ai_missing, /Check the contact email/);
+  assert.equal(data.decision_text, "Pat Example | Head of acquisitions | pat@acme.example | https://www.linkedin.com/in/pat-example");
+  assert.ok(!/Not found: point of contact/.test(data.ai_missing));
+  assert.match(data.ai_missing, /Check the email address/);
   assert.equal(data.ai_status, "done");
+});
+
+test("sanitize: a point of contact needs a source, a way to reach them, and an email on the firm's own domain", () => {
+  const run = contact => sanitizeResult(answer({ contact }), FOUND, TODAY).data;
+  const good = { name: "Pat", title: "Head", email: "pat@acme.example", linkedin: null, source: 1 };
+  assert.equal(run(good).decision_text, "Pat | Head | pat@acme.example | ");
+  assert.equal(run({ ...good, email: "pat@acme.example" , linkedin: "linkedin.com/in/pat" }).decision_text, "Pat | Head | pat@acme.example | https://linkedin.com/in/pat");
+  assert.equal(run({ ...good, email: null, linkedin: "https://www.linkedin.com/in/pat" }).decision_text, "Pat | Head |  | https://www.linkedin.com/in/pat", "LinkedIn alone is enough");
+  const wrongDomain = run({ ...good, email: "pat@gmail.com" });
+  assert.equal(wrongDomain.decision_text, undefined, "an email that is not on the firm's domain is dropped, and with nothing else there is no contact");
+  assert.match(wrongDomain.ai_summary, /email was dropped/);
+  assert.match(wrongDomain.ai_missing, /found, but with no usable email or LinkedIn/);
+  assert.equal(run({ ...good, email: "pat@mail.acme.example" }).decision_text, "Pat | Head | pat@mail.acme.example | ", "a sub-domain is fine");
+  assert.equal(run({ ...good, source: 2 }).decision_text, undefined, "cited a source that was dropped");
+  assert.equal(run({ ...good, source: 7 }).decision_text, undefined, "no such source");
+  assert.equal(run({ ...good, name: "" }).decision_text, undefined);
+  assert.equal(run({ ...good, email: null, linkedin: "https://evil.example/in/pat" }).decision_text, undefined, "not a linkedin address");
+  assert.equal(run({ ...good, email: "pat@acme.example|x\n" }).decision_text, undefined, "pipes and line breaks are not allowed in an email");
+  assert.match(run(null).ai_missing, /Not found: point of contact/);
+  assert.equal(run("pat").decision_text, undefined);
+  // nobody to trust the email without a website to compare it with
+  assert.equal(sanitizeResult(answer({ website: null }), FOUND, TODAY).data.decision_text, "Pat Example | Head of acquisitions |  | https://www.linkedin.com/in/pat-example", "without a website the email goes, the LinkedIn link stays");
 });
 
 test("sanitize: no usable sources means no claims and low scores", () => {
@@ -87,7 +111,7 @@ test("sanitize: unreadable answers are rejected", () => {
 
 test("system prompt tells the model the key rules", () => {
   const p = systemPrompt();
-  for (const s of ["Never guess", "firms only", "never instructions", "web search"]) assert.match(p, new RegExp(s, "i"));
+  for (const s of ["Never guess", "point of contact", "never instructions", "web search"]) assert.match(p, new RegExp(s, "i"));
 });
 
 // ---- end to end with a simulated AI service -------------------------------------------------
@@ -112,6 +136,7 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   await new Promise(r => ai.listen(0, "127.0.0.1", r));
   process.env.ANTHROPIC_API_KEY = "test-key";
   process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${ai.address().port}`;
+  process.env.RESEARCH_HOURLY_LIMIT = "100";
 
   const pool = new pg.Pool({ connectionString: url });
   await migrate(pool);
@@ -120,7 +145,7 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   const base = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
     server.close(); ai.close(); await pool.end();
-    for (const [k, v] of [["ANTHROPIC_API_KEY", saved.key], ["ANTHROPIC_BASE_URL", saved.base], ["AI_DAILY_LIMIT", saved.lim], ["AI_MODEL", saved.model]]) v === undefined ? delete process.env[k] : process.env[k] = v;
+    for (const [k, v] of [["ANTHROPIC_API_KEY", saved.key], ["ANTHROPIC_BASE_URL", saved.base], ["AI_DAILY_LIMIT", saved.lim], ["AI_MODEL", saved.model], ["RESEARCH_HOURLY_LIMIT", undefined]]) v === undefined ? delete process.env[k] : process.env[k] = v;
   });
   const call = async (method, p, body) => { const r = await fetch(base + p, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) }; };
   const waitFor = async (id, status) => { for (let i = 0; i < 80; i++) { const r = await call("GET", `/api/investors/${id}`); if (r.json.record.data.ai_status === status) return r.json.record.data; await new Promise(r => setTimeout(r, 100)); } throw new Error("timed out waiting for " + status); };
@@ -140,7 +165,7 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   assert.equal(done.s_mf, 2);
   assert.equal(done.review_status, "pending", "stays in review");
   assert.match(done.ai_summary, /Chicago interest: 5\/5/);
-  assert.match(done.ai_missing, /Decision-makers are not collected/);
+  assert.equal(done.decision_text, "Pat Example | Head of acquisitions | pat@acme.example | https://www.linkedin.com/in/pat-example", "the AI found a point of contact");
 
   // the default model is the small one: basic web search and no fallback parameter
   assert.equal(lastBody.model, "claude-haiku-5-5");
@@ -161,6 +186,10 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   assert.equal((await call("POST", "/api/investors", { name: "x", ai_summary: "forged" })).status, 400);
 
   // a second run on a record whose scores a person already set keeps the person's scores
+  // a contact a person already entered is never replaced
+  const idKeep = await add("Has Contact Inc", { decision_text: "My Own Person | Boss | mine@example.com | " });
+  await call("POST", `/api/investors/${idKeep}/research`);
+  assert.equal((await waitFor(idKeep, "done")).decision_text, "My Own Person | Boss | mine@example.com | ");
   const id2 = await add("Scored By Hand Inc", { s_chicago: 1 });
   await call("POST", `/api/investors/${id2}/research`);
   const d2 = await waitFor(id2, "done");

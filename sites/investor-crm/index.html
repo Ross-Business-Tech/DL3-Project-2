@@ -157,6 +157,27 @@ const SEED=[
  {id:"INV-025",name:"Randolph Street Realty Capital",type:"Qualified purchaser",hq:"Chicago (per The Real Deal)",strategy:"Multifamily ownership",check:"About $40M",scores:{chicago:5,mf:5,check:2,strategy:3,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Co-founder",src:"R25-1"},{name:"Contact to confirm",title:"Co-founder",src:"R25-1"}],deals:["Panorama Apartments, Lakeview, 140 units, about $40M (Jan 2025)"],sources:[{id:"R25-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/01/17/blitzlake-partners-sells-development-in-hot-chicago-submarket",accessed:"n/a (research CSV)",published:"2025-01-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Investor type unclear; may belong in Institutional.",acts:[],history:[]}
 ];
 let INV=[];
+/* Official websites for some of the 25 research firms, found by web search (checked against the firm's own pages or press releases). Please verify. */
+const KNOWN_SITES = {
+  "Waterton": "https://waterton.com/",
+  "RPM Living": "https://rpmliving.com/",
+  "LaTerra Capital Management and Respark Residential": "https://laterradev.com/",
+  "Cedar Street": "https://www.cedarst.com/",
+  "Eastham Capital (with Bender Cos.)": "https://www.easthamcapital.com/",
+  "Equus Capital Partners": "https://www.equuspartners.com/",
+  "Intercontinental Real Estate with Magellan Development Group": "https://www.intercontinental.net/",
+  "Pontegadea Inversiones (Amancio Ortega family office)": "https://www.pontegadea.com/",
+  "Randolph Street Realty Capital": "https://www.rstrealty.com/",
+  "FPA Multifamily": "https://www.fpamf.com/"
+};
+SEED.forEach(s => { if (KNOWN_SITES[s.name]) s.website = KNOWN_SITES[s.name]; });
+const fillableSites = () => INV.filter(i => !i.website && !i.noWebsite && KNOWN_SITES[i.name]);
+async function fillKnownSites() {
+  let n = 0, failed = 0;
+  for (const i of fillableSites()) { i.website = KNOWN_SITES[i.name]; try { await persist(i); n++; } catch (e) { i.website = ""; failed++; } }
+  S.msg = "Filled in " + n + " website" + (n === 1 ? "" : "s") + " from the research list" + (failed ? " (" + failed + " could not be saved)" : "") + ". They were found by web search, so please check them.";
+  render();
+}
 
 /* ---------- Core logic ---------- */
 function esc(v){return String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -192,6 +213,10 @@ function relView(i){return{vis:i.rel,hidden:0}}
 function go(t){S.tab=t==="Dashboard"?"Prospects":t==="Outreach"?"Tracker":t;S.msg="";render()}
 function setF(k,v){S.filters[k]=v;render()}
 function selectInv(id){S.selected=id;render()}
+function saveError(msg) {
+  const el = document.getElementById("saveerr");
+  if (el) { el.textContent = msg; el.scrollIntoView({ block: "nearest" }); } else { S.msg = msg; render(); }
+}
 async function saveDetail(id) {
   if (!can("edit")) return;
   const i = INV.find(x => x.id === id);
@@ -199,11 +224,16 @@ async function saveDetail(id) {
   if (stage !== i.stage && stage === "contacted" && !i.approval) {
     S.msg = "Cannot mark " + i.name + " as contacted: no approval record. An Approver must approve outreach first."; render(); return;
   }
+  const siteRaw = val("d_website").trim(), liRaw = val("d_linkedin").trim(), emRaw = val("d_email").trim();
+  const site = cleanWebsite(siteRaw), li = liRaw ? cleanLinkedIn(liRaw) : "";
+  if (siteRaw && !site) return saveError("The website must be a real web address, such as acme.com or https://www.acme.com.");
+  if (liRaw && !li) return saveError("The firm's LinkedIn page must be a linkedin.com address.");
+  if (emRaw && !validEmail(emRaw)) return saveError("That firm email address does not look right.");
   const before = JSON.stringify(toRec(i));
   const oldName = i.name;
   i.name = val("d_name").trim() || i.name;
   i.type = val("d_type"); i.hq = val("d_hq").trim(); i.check = val("d_check").trim(); i.strategy = val("d_strategy").trim();
-  i.website = val("d_website").trim(); i.linkedin = val("d_linkedin").trim(); i.contactEmail = val("d_email").trim();
+  i.website = site; i.linkedin = li; i.contactEmail = emRaw; if (site) i.noWebsite = false;
   i.sources = parseSources(val("d_sources")); i.decisionMakers = parseDM(val("d_dm")); i.deals = lines(val("d_deals"));
   i.stage = stage; i.owner = val("d_owner").trim(); i.next = val("d_next"); i.notes = val("d_notes");
   i.suppressed = document.getElementById("d_supp").checked;
@@ -226,27 +256,40 @@ async function approve(id) {
   render();
 }
 
+function addError(msg) {
+  const el = document.getElementById("adderr");
+  if (el) { el.textContent = msg; el.scrollIntoView({ block: "nearest" }); } else { S.msg = msg; render(); }
+}
+async function addProspect(andResearch) {
+  const name = val("np_name").trim(), type = val("np_type"), hq = val("np_hq").trim();
+  const siteRaw = val("np_site").trim(), cname = val("np_cname").trim(), ctitle = val("np_ctitle").trim(), cemail = val("np_cemail").trim(), cliRaw = val("np_cli").trim();
+  if (!name) return addError("Enter the firm's name.");
+  const dup = findDup(name);
+  if (dup) return addError("There is already an investor called " + dup.name + ". Not added.");
+  const site = cleanWebsite(siteRaw);
+  if (siteRaw && !site) return addError("The website does not look like a web address. Try something like acme.com.");
+  if ((cemail || cliRaw || ctitle) && !cname) return addError("Add the contact's name too, or clear the contact fields.");
+  if (cname && !cemail && !cliRaw) return addError("A contact needs an email or a LinkedIn link, so the team can reach them.");
+  if (cemail && !validEmail(cemail)) return addError("The contact's email address does not look right.");
+  const cli = cliRaw ? cleanLinkedIn(cliRaw) : "";
+  if (cliRaw && !cli) return addError("The LinkedIn link must be a linkedin.com address, such as https://www.linkedin.com/in/name.");
+  const i = newInv(name, type, hq, "Manual entry");
+  i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
+  if (site) i.website = site;
+  if (cname) i.decisionMakers = [{ name: cname.slice(0, 160), title: ctitle.slice(0, 160), email: cemail, linkedin: cli, src: "" }];
+  INV.push(i);
+  S.showAdd = false;
+  S.msg = await saveRemote(i, "Added " + name + ". It starts as \"To confirm\": check it, then press Confirm details." + (site ? "" : " It still needs a website.") + (cname ? "" : " It still needs a contact."));
+  render();
+  if (andResearch === true && i.rid) { S.selected = i.id; await runResearch(i.id); }
+}
+
 function newInv(name,type,hq,origin){
   return{id:"INV-"+String(INV.length+1).padStart(3,"0"),name,type,hq,strategy:"",check:"",
     scores:{chicago:0,mf:0,check:0,strategy:0,evidence:0,capital:0},selfReported:false,
     decisionMakers:[],deals:[],sources:[],stage:"identified",owner:"Unassigned",approval:null,
     next:"",last:AS_OF,suppressed:false,rel:[],notes:"Origin: "+origin,acts:[],history:[]};
 }
-async function addProspect(andResearch) {
-  if (!can("edit")) return;
-  const name = val("np_name").trim(), type = val("np_type"), hq = val("np_hq").trim();
-  if (!name) { S.msg = "Name is required."; render(); return; }
-  const dup = findDup(name);
-  if (dup) { S.msg = "Possible duplicate of " + dup.name + ". Not added."; render(); return; }
-  const i = newInv(name, type, hq, "Manual entry");
-  i.review = "pending"; i.id = "INV-" + String(INV.length + 1).padStart(3, "0");
-  INV.push(i);
-  S.showAdd = false;
-  S.msg = await saveRemote(i, "Added " + name + ". It starts as \"To confirm\": check it, then press Confirm details.");
-  render();
-  if (andResearch === true && i.rid) { S.selected = i.id; await runResearch(i.id); }
-}
-
 /* ---------- Shared list (here.now Site Data) ---------- */
 const COL = window.INVESTORS_API || "./.herenow/data/investors";
 async function api(method, url, body) {
@@ -273,7 +316,7 @@ function toRec(i) {
     stage: i.stage || "", owner: i.owner || "", approval_by: i.approval ? i.approval.by : "", approval_date: i.approval ? i.approval.date : "",
     next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
     review_status: i.review || "approved",
-    website: i.website || "", linkedin: i.linkedin || "", contact_email: i.contactEmail || "",
+    website: i.website || "", linkedin: i.linkedin || "", contact_email: i.contactEmail || "", no_website: !!i.noWebsite,
     intro_text: (i.rel || []).map(r => [r.holder, r.knows, r.confirmed || ""].join(" | ")).join("\n")
   };
 }
@@ -287,7 +330,7 @@ function fromRec(r, k) {
     stage: d.stage || "identified", owner: d.owner || "Unassigned", approval: d.approval_by ? { by: d.approval_by, date: d.approval_date } : null,
     next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: lines(d.intro_text).map(l => { const p = l.split("|").map(x => x.trim()); return { holder: p[0] || "", knows: p[1] || "", confirmed: p[2] || "" }; }), notes: d.notes || "", acts: [], history: [],
     review: d.review_status || "approved",
-    website: d.website || "", linkedin: d.linkedin || "", contactEmail: d.contact_email || "",
+    website: d.website || "", linkedin: d.linkedin || "", contactEmail: d.contact_email || "", noWebsite: !!d.no_website,
     aiStatus: d.ai_status || "", aiSummary: d.ai_summary || "", aiMissing: d.ai_missing || "", aiUpdated: d.ai_updated || "", aiStarted: d.ai_started || ""
   };
 }
@@ -451,7 +494,7 @@ async function exportContactsCsv() {
   for (const i of INV) {
     if (i.suppressed) continue; // asked to be removed: never exported
     const firm = [i.website, i.type, i.hq, fit(i).t, i.approval ? "yes" : "no"];
-    if (i.decisionMakers.length) i.decisionMakers.forEach(d => rows.push([i.name, d.name, d.title, d.email, d.linkedin, ...firm]));
+    if (realContacts(i).length) realContacts(i).forEach(d => rows.push([i.name, d.name, d.title, d.email, d.linkedin, ...firm]));
     else if (i.contactEmail) rows.push([i.name, "", "", i.contactEmail, i.linkedin, ...firm]);
   }
   saveCsv("dl3-contacts", ["company", "contact_name", "title", "email", "linkedin", "firm_website", "investor_type", "headquarters", "fit_score", "approved_for_outreach"], rows);
@@ -602,9 +645,14 @@ function flagChipsShort(i, n) {
   const chips = on.slice(0, n).map(({ f, k }) => `<button type="button" class="chip flag linkchip" title="Open this group and fix the flag" onclick="event.stopPropagation();openGroup('flag',${k})">${esc(f.label)}</button>`).join("");
   return chips + (on.length > n ? `<span class="muted" style="font-size:12px">+${on.length - n} more</span>` : "") + (on.length ? "" : '<span class="muted">Nothing</span>');
 }
+function siteLine(i) { // the website and the point of contact, so both are visible for every investor
+  const site = siteHost(i) ? `<a href="${esc(i.website)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(siteHost(i))}</a>` : (i.noWebsite ? "No website (individual)" : "No website yet");
+  const cs = realContacts(i);
+  return site + " · " + (cs.length ? "Contact: " + esc(cs[0].name) + (cs.length > 1 ? " +" + (cs.length - 1) : "") : "No contact yet");
+}
 function listHtml() {
   const rows = filtered().map(i => `<tr style="cursor:pointer" onclick="selectInv('${esc(i.id)}')">
-    <td data-label="Investor"><strong>${esc(i.name)}</strong><div class="muted" style="font-size:12px">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div></td>
+    <td data-label="Investor"><strong>${esc(i.name)}</strong><div class="muted" style="font-size:12px">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div><div class="muted" style="font-size:12px">${siteLine(i)}</div></td>
     <td data-label="Fit">${fit(i).t}${fit(i).t < FIT_THRESHOLD ? `<div class="muted" style="font-size:12px">below ${FIT_THRESHOLD}</div>` : ""}</td>
     <td data-label="Status">${i.review === "pending" ? "To confirm" : "Confirmed"} · ${esc(conf(i))} confidence</td>
     <td data-label="Stage">${esc(i.stage)}</td>
@@ -623,7 +671,24 @@ function vProspects(){
   const f = S.filters;
   const sel = (id, opts, cur, label) => `<select onchange="setF('${id}',this.value)"><option value="">${label}</option>${opts.map(o => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
   const chips = VIEWS.map(([k, label, test]) => `<button type="button" class="chip linkchip ${S.view === k ? "on" : ""}" onclick="setView('${k}')">${label}: ${INV.filter(test).length}</button>`).join(" ");
-  const add = S.showAdd ? `<div class="card"><h2 style="margin-top:0">Add an investor</h2><div class="row"><input id="np_name" placeholder="Firm name"><select id="np_type">${TYPES.filter(x => x !== "Unclassified").map(x => `<option>${x}</option>`).join("")}</select><input id="np_hq" placeholder="Headquarters"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API && S.research && S.research.enabled ? '<button onclick="addProspect(true)">Add and research</button>' : ""}<button onclick="toggleAdd()">Cancel</button></div><div class="muted" style="margin-top:6px">New investors start as "To confirm". Duplicate names are blocked.</div></div>` : "";
+  const add = S.showAdd ? `<div class="card"><h2 style="margin-top:0">Add an investor</h2>
+    <div class="formgrid">
+      <label>Firm name<input id="np_name" placeholder="Firm name"></label>
+      <label>Type<select id="np_type">${TYPES.filter(x => x !== "Unclassified").map(x => `<option>${x}</option>`).join("")}</select></label>
+      <label>Headquarters<input id="np_hq" placeholder="City, state"></label>
+      <label>Company website<input id="np_site" placeholder="e.g. acme.com"></label>
+    </div>
+    <h3 style="margin-top:12px">Point of contact (optional)</h3>
+    <div class="formgrid">
+      <label>Name<input id="np_cname" placeholder="Name of the contact"></label>
+      <label>Title<input id="np_ctitle" placeholder="e.g. Head of acquisitions"></label>
+      <label>Email<input id="np_cemail" type="email" placeholder="name@firm.com"></label>
+      <label>LinkedIn link<input id="np_cli" placeholder="https://www.linkedin.com/in/..."></label>
+    </div>
+    <div class="muted" style="margin-top:4px">A contact needs an email, a LinkedIn link, or both. Anything left out shows up as something to fix.</div>
+    <div id="adderr" class="bad" role="alert" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:8px"><button class="primary" onclick="addProspect()">Add</button>${window.INVESTORS_API && S.research && S.research.enabled ? '<button onclick="addProspect(true)">Add and research</button>' : ""}<button onclick="toggleAdd()">Cancel</button></div>
+    <div class="muted" style="margin-top:6px">New investors start as "To confirm". Duplicate names are blocked.</div></div>` : "";
   return `
   <div class="grid">
     ${metric(link(toConfirm, "setView('confirm')"), "Investors to confirm")}
@@ -631,6 +696,7 @@ function vProspects(){
     ${metric(link(due, "go('Tracker')"), "Follow-ups due")}
     ${metric(link(ready, "setView('ready')"), "Approved, ready to contact")}
   </div>
+  ${fillableSites().length ? `<div class="notice"><strong>${fillableSites().length} investors are missing a website that we found by web search.</strong> They may need a quick check. <button class="primary" onclick="fillKnownSites()">Fill in ${fillableSites().length} websites</button></div>` : ""}
   <div class="row" style="margin:4px 0 8px"><button class="primary" onclick="toggleAdd()">Add investor</button><button onclick="go('Import')">Import from PDF or website</button><button onclick="exportCsv()">Export CSV</button></div>
   ${add}
   <div class="card">
@@ -657,7 +723,7 @@ function detail(i) {
   const scTable = `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Weight</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   const rel = i.rel.length ? i.rel.map(r => `${esc(r.holder)}: ${esc(r.knows)}${r.confirmed ? ", confirmed " + esc(r.confirmed) : ""}`).join("<br>") : "None recorded";
   const src = i.sources.length ? table(["Source", "Link", "Published"], i.sources.map(s => [esc(s.label), /^https:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">open</a>` : esc(s.url), s.published ? esc(s.published) : '<span class="flag">missing</span>'])) : '<div class="muted">No sources yet.</div>';
-  const dms = i.decisionMakers.length ? i.decisionMakers.map(contactHtml).join("<br>") : '<span class="muted">No contact yet</span>';
+  const dms = realContacts(i).length ? realContacts(i).map(contactHtml).join("<br>") : '<span class="muted">No contact yet</span>';
   const links = [i.website, i.linkedin].filter(Boolean).map(linkOrText).join("<br>") + (i.contactEmail ? (i.website || i.linkedin ? "<br>" : "") + esc(i.contactEmail) : "");
   const hist = i.history.slice(0, 10).map(h => `${esc(h.date)} · ${esc(h.role)} · ${esc(h.field)}: ${esc(h.from)} to ${esc(h.to)}`).join("<br>") || "No changes yet";
   const ai = S.research || { enabled: false };
@@ -703,6 +769,7 @@ function detail(i) {
       <label><input type="checkbox" id="d_supp" ${i.suppressed ? "checked" : ""}> Asked to be removed</label>
     </div>
     <div style="margin-top:8px"><label>Notes<br><textarea id="d_notes" rows="2" style="width:100%">${esc(i.notes)}</textarea></label></div>
+    <div id="saveerr" class="bad" role="alert" style="margin-top:6px"></div>
     <div class="row" style="margin-top:10px"><button class="primary" ${running ? "disabled" : ""} onclick="saveDetail('${esc(i.id)}')">Save changes</button></div>`;
   return `<div class="card">
     <h2 style="margin-top:0">${esc(i.name)}</h2>
@@ -748,6 +815,7 @@ function vAbout(){
     "Pilot acceptance targets"
   ];
   const decided=[
+    "Every investor needs a company website and a point of contact (an email or a LinkedIn link); anything missing shows as something to fix",
     "Every investor type is eligible: family offices, institutions and qualified purchasers",
     "DL3's overall equity check range is $5M to $250M; it differs by project",
     "Everyone with the team password can approve outreach; the approval records the typed name",

@@ -33,6 +33,22 @@ function contactHtml(d) {
   return esc(d.name) + (d.title ? ", " + esc(d.title) : "") + (links.length ? " · " + links.join(" · ") : "");
 }
 
+/* ---------- Website and real contacts ---------- */
+function cleanWebsite(raw) { // an https web address, or ""; "acme.com" becomes "https://acme.com/"
+  let u = String(raw || "").trim();
+  if (!u || /\s/.test(u)) return "";
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = "https://" + u;
+  try {
+    const x = new URL(u);
+    if (!/^https?:$/.test(x.protocol) || !x.hostname.includes(".") || /^\d+\.\d+\.\d+\.\d+$/.test(x.hostname)) return "";
+    x.protocol = "https:";
+    return x.href.length <= 300 ? x.href : "";
+  } catch { return ""; }
+}
+const PLACEHOLDER = "Contact to confirm";
+const realContacts = i => i.decisionMakers.filter(d => d.name && d.name !== PLACEHOLDER); // "Contact to confirm" is a gap, not a contact
+const siteHost = i => { try { return new URL(i.website).hostname.replace(/^www\./i, ""); } catch { return ""; } };
+
 const FLAG_CATALOG = [
   { key: "pending", label: "Details not confirmed", test: i => i.review === "pending",
     help: "A person has not checked these details yet. Read the details and sources, correct anything wrong, then confirm them so the investor counts in the ranking.",
@@ -46,7 +62,7 @@ const FLAG_CATALOG = [
     form: i => `<label>Investor type <select id="fx1">${TYPES.filter(t => t !== "Unclassified").map(t => `<option>${esc(t)}</option>`).join("")}</select></label>`,
     apply: i => { i.type = val("fx1"); return { msg: "type set to " + i.type }; } },
 
-  { key: "contact", label: "No contact yet", test: i => !i.decisionMakers.length,
+  { key: "contact", label: "No contact yet", test: i => realContacts(i).length === 0,
     help: "Add a person at the firm, with their role and an email or a LinkedIn link, so the team can reach them.",
     save: "Add contact",
     form: () => `<div class="formgrid"><label>Name<input id="fx1" placeholder="Name of the contact"></label><label>Title<input id="fx2" placeholder="e.g. Head of acquisitions"></label><label>Email<input id="fx3" type="email" placeholder="name@firm.com"></label><label>LinkedIn link<input id="fx4" placeholder="https://www.linkedin.com/in/..."></label></div><div class="muted" style="margin-top:4px">Add an email, a LinkedIn link, or both.</div>`,
@@ -57,7 +73,21 @@ const FLAG_CATALOG = [
       let email = "", linkedin = "";
       if (emailRaw) { if (!validEmail(emailRaw)) return { error: "That email address does not look right." }; email = emailRaw; }
       if (liRaw) { linkedin = cleanLinkedIn(liRaw); if (!linkedin) return { error: "The LinkedIn link must be a linkedin.com address, such as https://www.linkedin.com/in/name." }; }
-      i.decisionMakers.push({ name, title, email, linkedin, src: "" }); return { msg: "contact added" };
+      i.decisionMakers = realContacts(i).concat([{ name, title, email, linkedin, src: "" }]); return { msg: "contact added" };
+    } },
+
+  { key: "website", label: "No website yet", test: i => !i.website && !i.noWebsite,
+    help: "Add the firm's own website so the team can check who they are. If this investor is an individual, tick the box instead.",
+    save: "Save website",
+    form: () => `<label>Company website<input id="fx1" placeholder="e.g. acme.com or https://www.acme.com"></label><label style="margin-top:6px"><input type="checkbox" id="fx2"> This investor is an individual and has no website</label>`,
+    apply: i => {
+      const none = document.getElementById("fx2");
+      if (none && none.checked) { i.noWebsite = true; return { msg: "marked as having no website" }; }
+      const raw = val("fx1");
+      if (!raw.trim()) return { error: "Enter the website, or tick the box if the investor has none." };
+      const site = cleanWebsite(raw);
+      if (!site) return { error: "That does not look like a web address. Try something like acme.com." };
+      i.website = site; i.noWebsite = false; return { msg: "website added" };
     } },
 
   { key: "srcdate", label: "Source date missing", test: i => i.sources.some(s => !s.published),

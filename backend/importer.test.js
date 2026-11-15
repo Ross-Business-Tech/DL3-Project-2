@@ -31,6 +31,18 @@ test("sanitize firms: builds pending records with no scores and keeps only state
   assert.equal(out.skippedIndividuals, 2);
 });
 
+test("sanitize firms: keeps a contact only with a name and a usable email or LinkedIn link", () => {
+  const run = contact => sanitizeFirms(firms([{ name: "Acme", contact }]), [], ctx).records[0];
+  assert.equal(run({ name: "Pat", title: "Head", email: "pat@acme.example", linkedin: null }).decision_text, "Pat | Head | pat@acme.example | ");
+  assert.equal(run({ name: "Pat", title: null, email: null, linkedin: "https://www.linkedin.com/in/pat" }).decision_text, "Pat |  |  | https://www.linkedin.com/in/pat");
+  assert.equal(run({ name: "Pat", email: "not an email", linkedin: null }).decision_text, undefined, "bad email");
+  assert.equal(run({ name: "Pat" }).decision_text, undefined, "no way to reach them");
+  assert.equal(run({ email: "pat@acme.example" }).decision_text, undefined, "no name");
+  assert.equal(run({ name: "Pat", linkedin: "https://evil.example/in/pat" }).decision_text, undefined, "not LinkedIn");
+  assert.equal(run("Pat").decision_text, undefined);
+  assert.equal(run(null).decision_text, undefined);
+});
+
 test("sanitize firms: skips duplicates (in the database and in the file) and caps the count", () => {
   const out = sanitizeFirms(firms([{ name: "Existing Co." }, { name: "NEW one" }, { name: "new  ONE" }, { name: "" }, { name: "!!!" }]), ["existing co"], ctx);
   assert.deepEqual(out.records.map(r => r.name), ["NEW one"]);

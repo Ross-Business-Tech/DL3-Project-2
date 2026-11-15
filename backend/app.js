@@ -86,7 +86,7 @@ const STALE_MS = 6 * 60 * 1000;
 const dailyLimit = () => parseInt(process.env.AI_DAILY_LIMIT, 10) || 40;
 const runsToday = async pool => (await pool.query("select count(*)::int as n from research_runs where started_at > now() - interval '24 hours'")).rows[0].n;
 const SCORE_FIELDS = CRITERIA.map(c => c[1]);
-const TEXT_FIELDS = ["hq", "strategy", "check_size", "website", "linkedin", "contact_email", "sources_text", "deals_text"];
+const TEXT_FIELDS = ["hq", "strategy", "check_size", "website", "linkedin", "contact_email", "decision_text", "sources_text", "deals_text"];
 
 async function setData(pool, id, patch) {
   const v = validate(patch, { requireName: false, server: true });
@@ -264,7 +264,7 @@ export function createApp(pool) {
 
   const reads = limiter({ windowMs: 3600_000, max: 1200 });
 
-  const researchLimit = limiter({ windowMs: 3600_000, max: 10 });
+  const researchLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.RESEARCH_HOURLY_LIMIT, 10) || 10 });
   app.get("/api/research/status", reads, async (req, res) => {
     res.json({ enabled: researchEnabled(), remainingToday: Math.max(0, dailyLimit() - await runsToday(pool)) });
   });
