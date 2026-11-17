@@ -613,6 +613,55 @@ function contactsResultHtml(r) {
     <div class="muted" style="margin-top:6px">A contact without an email or LinkedIn link shows as "Contact has no email or LinkedIn" until someone adds one.</div></div>`;
 }
 
+/* ---------- Investors from a CSV (no AI): one row per firm, saved as "To confirm", never scored ---------- */
+const INV_CSV_COLS = ["name", "type", "hq", "website", "linkedin", "contact_email", "strategy", "check_size", "sources_text", "deals_text", "contacts", "notes", "self_reported"];
+async function importInvestorsCsv() {
+  const file = document.getElementById("imp_invcsv").files[0];
+  if (!file) { S.iimp = { msg: "Choose a CSV file first." }; render(); return; }
+  if (file.size > 2 * 1024 * 1024) { S.iimp = { msg: "That file is larger than 2 MB." }; render(); return; }
+  const rows = parseCsvText(await file.text());
+  if (rows.length < 2) { S.iimp = { msg: "The file has no rows." }; render(); return; }
+  if (rows.length > 301) { S.iimp = { msg: "The file has more than 300 firms. Split it and import in parts." }; render(); return; }
+  const key = h => String(h).toLowerCase().replace(/[^a-z]/g, "");
+  const idx = {}; INV_CSV_COLS.forEach(c => { idx[c] = rows[0].findIndex(h => key(h) === key(c)); });
+  if (idx.name < 0) { S.iimp = { msg: "The file needs a column called name. Other columns: " + INV_CSV_COLS.slice(1).join(", ") + "." }; render(); return; }
+  const cell = (r, c, n, multi) => { const v = idx[c] < 0 ? "" : String(r[idx[c]] || ""); return (multi ? v.replace(/\r/g, "").split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n") : v.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim()).slice(0, n); };
+  const seen = new Set(INV.map(i => norm(i.name))), made = [], dup = [], bad = [];
+  let failed = 0;
+  S.iimp = { busy: true, msg: "Importing " + (rows.length - 1) + " rows..." }; render();
+  for (const r of rows.slice(1)) {
+    const name = cell(r, "name", 160);
+    if (!name) { bad.push("(a row with no name)"); continue; }
+    if (seen.has(norm(name))) { dup.push(name); continue; }
+    seen.add(norm(name));
+    const type = cell(r, "type", 40), site = cell(r, "website", 300), li = cell(r, "linkedin", 300), em = cell(r, "contact_email", 160);
+    const rec = {
+      name, type: TYPES.includes(type) && type !== "Unclassified" ? type : "Unclassified", hq: cell(r, "hq", 160), strategy: cell(r, "strategy", 400), check_size: cell(r, "check_size", 120),
+      sources_text: cell(r, "sources_text", 4000, true), deals_text: cell(r, "deals_text", 4000, true), notes: cell(r, "notes", 2000, true),
+      review_status: "pending", stage: "identified", owner: "Unassigned", last_date: todayStr(), suppressed: false,
+      self_reported: /^(yes|true|1)$/i.test(cell(r, "self_reported", 10))
+    };
+    const w = cleanWebsite(site); if (w) rec.website = w;
+    const l = li ? cleanLinkedIn(li) : ""; if (l) rec.linkedin = l;
+    if (em && validEmail(em)) rec.contact_email = em;
+    const dm = cell(r, "contacts", 2000, true).split("\n").map(line => { // name | title | email | linkedin, kept only if valid
+      const p = line.split("|").map(x => x.trim()); if (!p[0]) return "";
+      return [p[0], p[1] || "", p[2] && validEmail(p[2]) ? p[2] : "", p[3] ? cleanLinkedIn(p[3]) : ""].join(" | ");
+    }).filter(Boolean).join("\n");
+    if (dm) rec.decision_text = dm;
+    try { const res = await api("POST", COL, rec); made.push(name); } catch (e) { failed++; bad.push(name + ": " + (e.detail || e.message)); }
+  }
+  try { await loadInv(); } catch (e) { /* the list reloads next time */ }
+  S.iimp = { made: made.length, dup, bad, failed }; render();
+}
+function investorsResultHtml(r) {
+  if (r.msg) return `<div class="notice">${esc(r.msg)}</div>`;
+  const list = (t, a) => a.length ? `<div style="margin-top:6px"><strong>${a.length} ${t}</strong> <span class="muted">${a.slice(0, 8).map(esc).join(", ")}${a.length > 8 ? ", ..." : ""}</span></div>` : "";
+  return `<div class="card"><h2 style="margin-top:0">Investors imported</h2>
+    <p><strong>${r.made}</strong> investor${r.made === 1 ? "" : "s"} added as <strong>To confirm</strong>, with no scores yet. Open each one, check it, score it and press Confirm record.</p>
+    ${list("already in the list (skipped)", r.dup)}${list("could not be added", r.bad)}</div>`;
+}
+
 /* ---------- Import (PDF or website) ---------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function importReady() { return !!(window.INVESTORS_API && S.research && S.research.enabled); }
@@ -712,6 +761,10 @@ function vImport() {
   <div class="card"><h2>Import from a website</h2>
     <p class="muted">Paste the address of a page that lists investors. It must start with https://.</p>
     <div class="row"><input id="imp_url" placeholder="https://" style="min-width:260px" ${off}><button class="primary" onclick="importSite()" ${busy}>Read website</button></div></div>
+  ${S.iimp ? investorsResultHtml(S.iimp) : ""}
+  <div class="card"><h2>Import investors from a CSV (no AI needed)</h2>
+    <p class="muted">Add firms from a spreadsheet saved as CSV. Needs a <strong>name</strong> column; optional columns: type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts (one per line: name | title | email | LinkedIn), notes, self_reported. Firms already in the list are skipped. Everything arrives as "To confirm" and unscored.</p>
+    <div class="row"><input type="file" id="imp_invcsv" accept=".csv,text/csv"><button class="primary" onclick="importInvestorsCsv()" ${S.iimp && S.iimp.busy ? "disabled" : ""}>Import investors</button></div></div>
   ${S.cimp ? contactsResultHtml(S.cimp) : ""}
   <div class="card"><h2>Import contacts from a CSV</h2>
     <p class="muted">Add points of contact to investors already in the list. The file needs a <strong>company</strong> column (matched to the investor's name) and a <strong>contact_name</strong> column; <strong>title</strong>, <strong>email</strong> and <strong>linkedin</strong> are optional. The "Download contacts for Agora" file has these columns. Contacts already there are skipped, and "Contact to confirm" placeholders are replaced.</p>

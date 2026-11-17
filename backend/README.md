@@ -37,6 +37,10 @@ Setup (in Render, service > **Environment**):
 
 The search tool must also be allowed for the organization that owns the key (Claude Console settings).
 
+## Import from a CSV (no AI)
+
+The **Import** tab also takes a spreadsheet saved as CSV with one row per firm (a `name` column, plus optional type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts, notes, self_reported). Firms already in the list are skipped. Every firm arrives as "To confirm" and unscored. This needs no AI key.
+
 ## Import from a PDF or a website
 
 The **Import** tab reads a PDF (up to 10 MB) or a web page and adds each firm it lists to the review queue.
