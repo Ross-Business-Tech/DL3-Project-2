@@ -27,11 +27,14 @@ What it does and does not do:
 - A person always reviews the result and presses **Confirm record**.
 
 Setup (in Render, service > **Environment**):
-- `ANTHROPIC_API_KEY`: the key from your instructor. Without it the button stays off.
+- `OPENAI_API_KEY`: the U-M GPT Toolkit key from your instructor (an OpenAI-compatible key). Without a key the buttons stay off.
+  `OPENAI_BASE_URL` defaults to `https://api.toolkit.umgpt.umich.edu/v1` and `AI_MODEL` to `gpt-5.6-terra`.
+  Alternatively set `ANTHROPIC_API_KEY` (a real Anthropic key) to use Claude. If both are set, `OPENAI_API_KEY` wins unless `AI_PROVIDER=anthropic`.
+  With the Toolkit, automatic research needs the service to allow web search; PDF import needs it to accept PDF files. The page-reading import is done by this server, which fetches the page and gives the AI its text.
 - `AI_CHECK_RANGE`: DL3's overall equity check range. The default is `$5M to $250M`; each project has its own target inside it.
 - `AI_DAILY_LIMIT`: the most research runs in 24 hours (default 40). Each run costs money, and anyone with the
   page address can start one, so keep this low.
-- `AI_MODEL`: optional. The default is the small, low-cost `claude-haiku-5-5`. A more capable (and more expensive) model can be set here.
+- `AI_MODEL`: optional. The default is `gpt-5.6-terra` (Toolkit) or the low-cost `claude-haiku-5-5` (Anthropic).
 
 The search tool must also be allowed for the organization that owns the key (Claude Console settings).
 

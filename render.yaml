@@ -17,6 +17,11 @@ services:
           name: dl3-investor-db
           property: connectionString
       # Automatic research. Add the key in Render's Environment tab (never in the code).
+      # The U-M GPT Toolkit key (OpenAI-compatible). If this is set it is used; ANTHROPIC_API_KEY is the alternative.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: "https://api.toolkit.umgpt.umich.edu/v1"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: AI_DAILY_LIMIT # most research runs allowed in 24 hours (each one costs money)
