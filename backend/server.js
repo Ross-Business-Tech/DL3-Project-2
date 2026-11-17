@@ -1,7 +1,7 @@
 // Starts the DL3 investor CRM server. Render supplies PORT and DATABASE_URL.
 import pg from "pg";
 import { createApp, migrate } from "./app.js";
-import { seedBuiltIn } from "./seed.js";
+import { seedAll } from "./seed.js";
 
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is not set. Add the database connection in Render (see render.yaml).");
@@ -15,6 +15,6 @@ const pool = new pg.Pool({
 pool.on("error", e => console.error("database connection error:", e.message));
 
 await migrate(pool);
-try { await seedBuiltIn(pool); } catch (e) { console.error("could not load the built-in investors (the site still starts):", e.message); }
+try { await seedAll(pool); } catch (e) { console.error("could not load the built-in investors (the site still starts):", e.message); }
 const port = Number(process.env.PORT) || 3000;
 createApp(pool).listen(port, "0.0.0.0", () => console.log(`DL3 investor CRM listening on port ${port}`));

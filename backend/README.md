@@ -152,4 +152,4 @@ The tests skip the database checks when `TEST_DATABASE_URL` is not set.
 
 ## Built-in investors
 
-`backend/seed-praxis.json` holds 53 researched firms (details, sources, deals, scores). The server loads them once when it starts, marks them confirmed, and never touches a record a person has already worked on. People's names, emails, phones and personal LinkedIn links are deliberately not in the file (the repo is public); add them with **Import contacts from a CSV** on the Import tab.
+`backend/seed-praxis.json` (53 firms) and `backend/seed-chicago32.json` (32 more) hold researched firms (details, sources, deals, scores). The server loads them once when it starts, marks them confirmed, and never touches a record a person has already worked on. People's names, emails, phones and personal LinkedIn links are deliberately not in the file (the repo is public); add them with **Import contacts from a CSV** on the Import tab.
