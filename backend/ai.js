@@ -93,6 +93,7 @@ export async function fetchPageText(url) {
     const res = await fetch(u, { redirect: "manual", signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "DL3-CRM-importer", Accept: "text/html,text/plain" } }).catch(() => null);
     if (!res) throw aiError("The AI import could not open that page.");
     if (res.status >= 300 && res.status < 400 && res.headers.get("location")) { u = new URL(res.headers.get("location"), u); continue; }
+    if ([401, 403, 429].includes(res.status)) throw aiError("That website does not allow automated readers (it answered " + res.status + "). Save the page as a PDF, or copy its text into a .txt file, and use Import from a file instead.");
     if (!res.ok) throw aiError("The AI import could not open that page (it answered " + res.status + ").");
     if (!/text\/(html|plain)/i.test(res.headers.get("content-type") || "")) throw aiError("The AI import can only read web pages, not other file types.");
     const chunks = []; let size = 0;
