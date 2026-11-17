@@ -257,7 +257,7 @@ export function createApp(pool) {
   // The CRM page. It is the same file used on here.now, with the API address added.
   const pageHtml = fs.readFileSync(path.join(SITE_DIR, "index.html"), "utf8")
     .replace("<script>", '<script>window.INVESTORS_API="/api/investors";</script>\n<script>');
-  app.get("/", (req, res) => res.type("html").send(pageHtml));
+  app.get("/", (req, res) => res.type("html").set("Cache-Control", "no-cache").send(pageHtml)); // always fetch the latest page after a deploy
   for (const file of ["tracker.js", "groups.js"]) { // the page's script files (fixed list, nothing from the request)
     const body = fs.readFileSync(path.join(SITE_DIR, file), "utf8");
     app.get("/" + file, (req, res) => res.type("application/javascript").set("Cache-Control", "no-cache").send(body));
