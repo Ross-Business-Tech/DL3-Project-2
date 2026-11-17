@@ -516,25 +516,111 @@ async function exportContactsCsv() {
 }
 
 /* ---------- Contacts from a CSV: matched to investors by company name ---------- */
-function parseCsvText(text) { // handles quotes, commas and line breaks inside quotes, and a leading BOM
+function parseCsvText(text, delim = ",") { // handles quotes, the separator and line breaks inside quotes, and a leading BOM
   const rows = []; let row = [], f = "", q = false;
   text = String(text || "").replace(/^﻿/, "");
   for (let k = 0; k < text.length; k++) {
     const c = text[k];
     if (q) { if (c === '"') { if (text[k + 1] === '"') { f += '"'; k++; } else q = false; } else f += c; }
     else if (c === '"') q = true;
-    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === delim) { row.push(f); f = ""; }
     else if (c === "\n" || c === "\r") { if (c === "\r" && text[k + 1] === "\n") k++; row.push(f); rows.push(row); row = []; f = ""; }
     else f += c;
   }
   if (f.length || row.length) { row.push(f); rows.push(row); }
   return rows.filter(r => r.some(x => x.trim()));
 }
+/* ---------- Reading a table from a file: CSV, TSV or text, Excel (.xlsx), a Word table (.docx) or JSON ---------- */
+async function zipEntries(buf) { // the files inside a .xlsx or .docx (a zip), from its table of contents
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let end = -1;
+  for (let k = buf.byteLength - 22; k >= Math.max(0, buf.byteLength - 65557); k--) if (dv.getUint32(k, true) === 0x06054b50) { end = k; break; }
+  if (end < 0) throw new Error("not a zip file");
+  const n = dv.getUint16(end + 10, true); let p = dv.getUint32(end + 16, true); const out = {};
+  for (let k = 0; k < n && dv.getUint32(p, true) === 0x02014b50; k++) {
+    const nameLen = dv.getUint16(p + 28, true), extra = dv.getUint16(p + 30, true), cmt = dv.getUint16(p + 32, true);
+    out[new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen))] = { method: dv.getUint16(p + 10, true), csize: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) };
+    p += 46 + nameLen + extra + cmt;
+  }
+  return out;
+}
+async function zipText(buf, entries, name) {
+  const e = entries[name]; if (!e) return null;
+  const dv = new DataView(buf), start = e.off + 30 + dv.getUint16(e.off + 26, true) + dv.getUint16(e.off + 28, true);
+  const data = new Uint8Array(buf, start, e.csize);
+  if (e.method === 0) return new TextDecoder().decode(data);
+  if (e.method !== 8) throw new Error("unsupported zip");
+  const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const parts = []; let total = 0;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.length; if (total > 30e6) { reader.cancel(); throw new Error("too big"); } parts.push(value); }
+  return new TextDecoder().decode(await new Blob(parts).arrayBuffer());
+}
+const xml = t => new DOMParser().parseFromString(t, "application/xml");
+async function readXlsx(buf) {
+  const z = await zipEntries(buf);
+  let sheetPath = "xl/worksheets/sheet1.xml";
+  const wb = await zipText(buf, z, "xl/workbook.xml"), rels = await zipText(buf, z, "xl/_rels/workbook.xml.rels");
+  if (wb && rels) { // the first sheet in the workbook
+    const first = xml(wb).getElementsByTagName("sheet")[0], rid = first && (first.getAttribute("r:id") || first.getAttribute("id"));
+    const rel = [...xml(rels).getElementsByTagName("Relationship")].find(x => x.getAttribute("Id") === rid);
+    if (rel) sheetPath = ("xl/" + rel.getAttribute("Target")).replace("xl//", "").replace(/^xl\/\.\.\//, "").replace("xl/xl/", "xl/");
+  }
+  const sheet = await zipText(buf, z, sheetPath); if (!sheet) throw new Error("no sheet");
+  const ss = await zipText(buf, z, "xl/sharedStrings.xml");
+  const shared = ss ? [...xml(ss).getElementsByTagName("si")].map(si => [...si.getElementsByTagName("t")].map(t => t.textContent).join("")) : [];
+  const colIndex = ref => { let n = 0; for (const ch of String(ref).replace(/[0-9]/g, "")) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+  const rows = [];
+  for (const row of xml(sheet).getElementsByTagName("row")) {
+    const out = []; let next = 0;
+    for (const c of row.getElementsByTagName("c")) {
+      const at = c.getAttribute("r") ? colIndex(c.getAttribute("r")) : next, t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0];
+      let val = "";
+      if (t === "inlineStr") val = [...c.getElementsByTagName("t")].map(x => x.textContent).join("");
+      else if (v) val = t === "s" ? (shared[+v.textContent] || "") : t === "b" ? (v.textContent === "1" ? "TRUE" : "FALSE") : v.textContent;
+      while (out.length < at) out.push(""); out[at] = val; next = at + 1;
+    }
+    rows.push(out);
+  }
+  return rows.filter(r => r.some(x => String(x).trim()));
+}
+async function readDocx(buf) { // the first table in the document
+  const z = await zipEntries(buf), doc = await zipText(buf, z, "word/document.xml"); if (!doc) throw new Error("no document");
+  const tbl = xml(doc).getElementsByTagName("w:tbl")[0]; if (!tbl) return [];
+  return [...tbl.getElementsByTagName("w:tr")].map(tr => [...tr.getElementsByTagName("w:tc")].map(tc => [...tc.getElementsByTagName("w:p")].map(p => [...p.getElementsByTagName("*")].map(n => n.nodeName === "w:t" ? n.textContent : n.nodeName === "w:br" ? "\n" : n.nodeName === "w:tab" ? " " : "").join("")).join("\n").trim()));
+}
+function jsonRows(text) { // a list of firms, or {investors: [...]}; sources, deals and contacts may be lists
+  let data = JSON.parse(text);
+  if (data && !Array.isArray(data)) data = data.investors || data.firms || data.rows;
+  if (!Array.isArray(data) || !data.length) throw new Error("no list");
+  const keys = [...new Set(data.flatMap(o => Object.keys(o || {})))];
+  const str = (k, v) => {
+    if (v == null) return "";
+    if (Array.isArray(v)) return v.map(x => x && typeof x === "object" ? (k === "contacts" ? [x.name, x.title, x.email, x.linkedin] : [x.label, x.url, x.accessed, x.published]).map(y => y || "").join(" | ") : String(x)).join("\n");
+    return String(v);
+  };
+  return [keys].concat(data.map(o => keys.map(k => str(k, (o || {})[k]))));
+}
+// Returns the rows of the first table in the file (the first row holds the column names), or throws a plain message.
+async function readTable(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (ext === "numbers") throw new Error("Apple Numbers files cannot be read directly. In Numbers choose File, Export To, then Excel or CSV, and upload that.");
+  if (ext === "xls" || ext === "doc") throw new Error("Old .xls and .doc files cannot be read. Open the file and save it as .xlsx (Excel), .docx (Word) or CSV first.");
+  if (ext === "xlsx" || ext === "docx") {
+    if (file.size > 5 * 1024 * 1024) throw new Error("That file is larger than 5 MB.");
+    try { return ext === "xlsx" ? await readXlsx(await file.arrayBuffer()) : await readDocx(await file.arrayBuffer()); }
+    catch (e) { throw new Error("That " + ext + " file could not be read" + (ext === "docx" ? " (it needs a table whose top row has the column names)" : "") + ". Save it as CSV and try again."); }
+  }
+  if (file.size > 2 * 1024 * 1024) throw new Error("That file is larger than 2 MB.");
+  const text = await file.text();
+  if (ext === "json" || /^\s*[\[{]/.test(text)) { try { return jsonRows(text); } catch (e) { throw new Error("That JSON file should be a list of firms, each with field names like name and website."); } }
+  const head = text.split(/\r?\n/, 1)[0], count = ch => head.split(ch).length - 1;
+  const delim = count("\t") > count(",") && count("\t") >= count(";") ? "\t" : count(";") > count(",") ? ";" : ",";
+  return parseCsvText(text, delim);
+}
 async function importContactsCsv() {
   const file = document.getElementById("imp_contacts").files[0];
-  if (!file) { S.cimp = { msg: "Choose a CSV file first." }; render(); return; }
-  if (file.size > 1024 * 1024) { S.cimp = { msg: "That file is larger than 1 MB." }; render(); return; }
-  const rows = parseCsvText(await file.text());
+  if (!file) { S.cimp = { msg: "Choose a file first." }; render(); return; }
+  let rows; try { rows = await readTable(file); } catch (e) { S.cimp = { msg: e.message }; render(); return; }
   if (rows.length < 2) { S.cimp = { msg: "The file has no rows." }; render(); return; }
   if (rows.length > 2001) { S.cimp = { msg: "The file has more than 2,000 rows." }; render(); return; }
   const key = h => String(h).toLowerCase().replace(/[^a-z]/g, "");
@@ -596,16 +682,20 @@ function downloadTemplate(kind) {
 const INV_CSV_COLS = ["name", "type", "hq", "website", "linkedin", "contact_email", "strategy", "check_size", "sources_text", "deals_text", "contacts", "s_chicago", "s_mf", "s_check", "s_strategy", "s_evidence", "s_capital", "notes", "self_reported"];
 async function importInvestorsCsv() {
   const file = document.getElementById("imp_invcsv").files[0];
-  if (!file) { S.iimp = { msg: "Choose a CSV file first." }; render(); return; }
-  if (file.size > 2 * 1024 * 1024) { S.iimp = { msg: "That file is larger than 2 MB." }; render(); return; }
-  const rows = parseCsvText(await file.text());
+  if (!file) { S.iimp = { msg: "Choose a file first." }; render(); return; }
+  if (/\.pdf$/i.test(file.name)) { // a PDF has no real columns: the AI reads it instead (it adds firms with no scores)
+    S.iimp = { msg: "A PDF has no real columns, so the AI is reading it instead. Its result appears at the top of this page, and the investors it finds are added unscored." }; 
+    if (window.INVESTORS_API && S.research && S.research.enabled) { await startImportRequest(file.name, () => fetch("/api/import/file", { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(file.name) }, body: file })); return; }
+    S.iimp = { msg: "A PDF has no real columns, so only the AI can read it, and the AI is not set up yet. Save the table as Excel or CSV and upload that." }; render(); return;
+  }
+  let rows; try { rows = await readTable(file); } catch (e) { S.iimp = { msg: e.message }; render(); return; }
   if (rows.length < 2) { S.iimp = { msg: "The file has no rows." }; render(); return; }
   if (rows.length > 301) { S.iimp = { msg: "The file has more than 300 firms. Split it and import in parts." }; render(); return; }
   const key = h => String(h).toLowerCase().replace(/[^a-z]/g, "");
   const idx = {}; INV_CSV_COLS.forEach(c => { idx[c] = rows[0].findIndex(h => key(h) === key(c)); });
   if (idx.name < 0) { S.iimp = { msg: "The file needs a column called name. Other columns: " + INV_CSV_COLS.slice(1).join(", ") + "." }; render(); return; }
   const cell = (r, c, n, multi) => { const v = idx[c] < 0 ? "" : String(r[idx[c]] || ""); return (multi ? v.replace(/\r/g, "").split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n") : v.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim()).slice(0, n); };
-  const seen = new Set(INV.map(i => norm(i.name))), made = [], dup = [], bad = [], updated = [];
+  const seen = new Set(INV.map(i => norm(i.name))), made = [], dup = [], bad = [], updated = []; let examples = 0;
   const upd = !!(document.getElementById("imp_upd") || {}).checked;
   const SCORE_COLS = [["s_chicago", "chicago"], ["s_mf", "mf"], ["s_check", "check"], ["s_strategy", "strategy"], ["s_evidence", "evidence"], ["s_capital", "capital"]];
   const scoreOf = (r, c) => { const v = cell(r, c, 3); return /^[0-5]$/.test(v) ? +v : null; };
@@ -613,7 +703,7 @@ async function importInvestorsCsv() {
   S.iimp = { busy: true, msg: "Importing " + (rows.length - 1) + " rows..." }; render();
   for (const r of rows.slice(1)) {
     const name = cell(r, "name", 160);
-    if (EXAMPLE_ROW.test(name)) continue;
+    if (EXAMPLE_ROW.test(name)) { examples++; continue; }
     if (!name) { bad.push("(a row with no name)"); continue; }
     if (seen.has(norm(name))) {
       const inv = INV.find(x => norm(x.name) === norm(name));
@@ -648,10 +738,11 @@ async function importInvestorsCsv() {
     try { const res = await api("POST", COL, rec); made.push(name); } catch (e) { failed++; bad.push(name + ": " + (e.detail || e.message)); }
   }
   try { await loadInv(); } catch (e) { /* the list reloads next time */ }
-  S.iimp = { made: made.length, updated: updated.length, dup, bad, failed }; render();
+  S.iimp = { made: made.length, updated: updated.length, dup, bad, failed, examples }; render();
 }
 function investorsResultHtml(r) {
   if (r.msg) return `<div class="notice">${esc(r.msg)}</div>`;
+  if (!r.made && !r.updated && r.examples && !r.dup.length && !r.bad.length) return `<div class="notice"><strong>Nothing was added: this file only has the example row.</strong> Replace the row named "EXAMPLE - delete this row" with your own investors, then upload it again.</div>`;
   const list = (t, a) => a.length ? `<div style="margin-top:6px"><strong>${a.length} ${t}</strong> <span class="muted">${a.slice(0, 8).map(esc).join(", ")}${a.length > 8 ? ", ..." : ""}</span></div>` : "";
   return `<div class="card"><h2 style="margin-top:0">Investors imported</h2>
     <p><strong>${r.made}</strong> investor${r.made === 1 ? "" : "s"} added as <strong>To confirm</strong>${r.updated ? ", and <strong>" + r.updated + "</strong> firms already in the list were filled in with the file's sources, deals and scores" : ""}. Check them, then confirm: tick several on the Investors page and use <em>Confirm details</em>.</p>
@@ -758,16 +849,16 @@ function vImport() {
     <p class="muted">Paste the address of a page that lists investors. It must start with https://.</p>
     <div class="row"><input id="imp_url" placeholder="https://" style="min-width:260px" ${off}><button class="primary" onclick="importSite()" ${busy}>Read website</button></div></div>
   ${S.iimp ? investorsResultHtml(S.iimp) : ""}
-  <div class="card"><h2>Import investors from a CSV (no AI needed)</h2>
-    <p class="muted">Add firms from a spreadsheet saved as CSV. Needs a <strong>name</strong> column; optional columns: type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts (one per line: name | title | email | LinkedIn), notes, self_reported. Score columns s_chicago, s_mf, s_check, s_strategy, s_evidence and s_capital take 0 to 5. New firms arrive as "To confirm".</p>
+  <div class="card"><h2>Import investors from a spreadsheet (no AI needed)</h2>
+    <p class="muted">Add firms from a CSV, Excel (.xlsx), tab-separated or text file, a JSON list, or a Word (.docx) table. A PDF is read by the AI instead. Apple Numbers: use File, Export To, Excel or CSV first. Needs a <strong>name</strong> column; optional columns: type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts (one per line: name | title | email | LinkedIn), notes, self_reported. Score columns s_chicago, s_mf, s_check, s_strategy, s_evidence and s_capital take 0 to 5. New firms arrive as "To confirm".</p>
     <p><a href="#" onclick="downloadTemplate('investors');return false"><strong>Download the template</strong></a> <span class="muted">(a CSV with every column and one example row to copy, then delete)</span></p>
     <label><input type="checkbox" id="imp_upd"> Also fill in firms already in the list that are still "To confirm" (replaces their sources, deals and scores with the file's; confirmed investors are never touched)</label>
-    <div class="row"><input type="file" id="imp_invcsv" accept=".csv,text/csv"><button class="primary" onclick="importInvestorsCsv()" ${S.iimp && S.iimp.busy ? "disabled" : ""}>Import investors</button></div></div>
+    <div class="row"><input type="file" id="imp_invcsv" accept=".csv,.tsv,.txt,.xlsx,.docx,.json,.pdf,text/csv"><button class="primary" onclick="importInvestorsCsv()" ${S.iimp && S.iimp.busy ? "disabled" : ""}>Import investors</button></div></div>
   ${S.cimp ? contactsResultHtml(S.cimp) : ""}
-  <div class="card"><h2>Import contacts from a CSV</h2>
+  <div class="card"><h2>Import contacts from a spreadsheet</h2>
     <p class="muted">Add points of contact to investors already in the list. The file needs a <strong>company</strong> column (matched to the investor's name) and a <strong>contact_name</strong> column; <strong>title</strong>, <strong>email</strong> and <strong>linkedin</strong> are optional. The "Download contacts for Agora" file has these columns. Contacts already there are skipped, and "Contact to confirm" placeholders are replaced.</p>
     <p><a href="#" onclick="downloadTemplate('contacts');return false"><strong>Download the template</strong></a> <span class="muted">(a CSV with the five columns and one example row to copy, then delete)</span></p>
-    <div class="row"><input type="file" id="imp_contacts" accept=".csv,text/csv"><button class="primary" onclick="importContactsCsv()" ${S.cimp && S.cimp.busy ? "disabled" : ""}>Import contacts</button></div></div>
+    <div class="row"><input type="file" id="imp_contacts" accept=".csv,.tsv,.txt,.xlsx,.docx,.json"><button class="primary" onclick="importContactsCsv()" ${S.cimp && S.cimp.busy ? "disabled" : ""}>Import contacts</button></div></div>
   <div class="card"><h2>Export</h2>
     <p class="muted">Download the whole list as a CSV file that opens in Excel or Google Sheets. It includes scores, fit, sources, review status and notes.</p>
     <button onclick="exportCsv()">Download CSV</button>

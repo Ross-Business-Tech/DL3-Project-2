@@ -41,6 +41,8 @@ The search tool must also be allowed for the organization that owns the key (Cla
 
 ## Import from a CSV (no AI)
 
+The box also reads Excel (.xlsx, first sheet), a Word (.docx) first table, tab-separated or semicolon files, and a JSON list; all of that is read in the browser, with no AI. A PDF is passed to the AI import instead. Apple Numbers and old .xls/.doc files are refused with a message to export as Excel, CSV or .docx.
+
 The **Import** tab also takes a spreadsheet saved as CSV with one row per firm (a `name` column, plus optional type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts, s_chicago, s_mf, s_check, s_strategy, s_evidence, s_capital, notes, self_reported). Firms already in the list are skipped. Every firm arrives as "To confirm" and unscored. This needs no AI key.
 
 ## Import from a PDF or a website
