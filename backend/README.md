@@ -149,3 +149,7 @@ The tests skip the database checks when `TEST_DATABASE_URL` is not set.
 - Who can see and edit is not restricted yet: anyone with the address can use the page. Adding
   a sign-in step is a separate piece of work.
 - There is no delete. Editing and the review step are the way to fix a record.
+
+## Built-in investors
+
+`backend/seed-praxis.json` holds 53 researched firms (details, sources, deals, scores). The server loads them once when it starts, marks them confirmed, and never touches a record a person has already worked on. People's names, emails, phones and personal LinkedIn links are deliberately not in the file (the repo is public); add them with **Import contacts from a CSV** on the Import tab.
