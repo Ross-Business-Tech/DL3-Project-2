@@ -29,15 +29,13 @@ const answer = over => JSON.stringify({
   missing: ["Equity check range is a guess"], ...over
 });
 
-test("sanitize: keeps supported facts, drops invented ones, and lowers unsupported scores", () => {
+test("sanitize: keeps supported facts, drops invented ones, and never scores", () => {
   const { data } = sanitizeResult("Here you go: " + answer(), FOUND, TODAY);
   assert.equal(data.sources_text.split("\n").length, 1);
   assert.match(data.sources_text, /therealdeal\.com\/a \| 2026-11-10 \| 2026-03-01/);
   assert.equal(data.deals_text, "Bought 100 units in Chicago (2026) (source 1)");
-  assert.equal(data.s_chicago, 5);
-  assert.equal(data.s_mf, 2, "cited only a dropped source");
-  assert.equal(data.s_check, 2, "no source at all");
-  assert.equal(data.s_evidence, 5);
+  assert.ok(!Object.keys(data).some(k => k.startsWith("s_")), "the AI sets no scores");
+  assert.match(data.ai_summary, /Found 1 usable source and 1 deal with a source\. Not scored/);
   assert.equal(data.hq, "Chicago, IL");
   assert.equal(data.website, "https://acme.example/");
   assert.equal(data.linkedin, "https://www.linkedin.com/company/acme");
@@ -70,13 +68,11 @@ test("sanitize: a point of contact needs a source, a way to reach them, and an e
   assert.equal(sanitizeResult(answer({ website: null }), FOUND, TODAY).data.decision_text, "Pat Example | Head of acquisitions |  | https://www.linkedin.com/in/pat-example", "without a website the email goes, the LinkedIn link stays");
 });
 
-test("sanitize: no usable sources means no claims and low scores", () => {
+test("sanitize: no usable sources means no claims", () => {
   const { data } = sanitizeResult(answer({ sources: [{ label: "x", url: "https://invented.example/x" }], deals: [] }), FOUND, TODAY);
   assert.equal(data.hq, undefined);
   assert.equal(data.strategy, undefined);
   assert.equal(data.contact_email, undefined);
-  assert.equal(data.s_evidence, 0);
-  assert.ok(Object.entries(data).filter(([k]) => k.startsWith("s_")).every(([, v]) => v <= 2));
   assert.match(data.ai_missing, /Not found: any usable source/);
 });
 
@@ -91,10 +87,7 @@ test("sanitize: rejects bad links, emails, dates, types and out-of-range scores"
   assert.equal(data.contact_email, undefined);
   assert.equal(data.type, undefined);
   assert.match(data.sources_text, /\|\s*$/, "future date becomes empty");
-  assert.equal(data.s_chicago, 5);
-  assert.equal(data.s_mf, 0);
-  assert.equal(data.s_check, 0);
-  assert.equal(data.s_evidence, 0, "evidence needs a sourced deal");
+  assert.ok(!Object.keys(data).some(k => k.startsWith("s_")), "scores in the answer are ignored");
 });
 
 test("sanitize: instructions hidden in the answer are only ever text", () => {
@@ -153,7 +146,7 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
 
   assert.deepEqual((await call("GET", "/api/research/status")).json, { enabled: true, remainingToday: 40 });
 
-  // happy path: fills empty fields, applies scores, keeps what a person typed
+  // happy path: fills empty fields, sets no scores, keeps what a person typed
   const id = await add("Acme Capital", { type: "Family office", notes: "typed by a person", strategy: "my own strategy" });
   assert.equal((await call("POST", `/api/investors/${id}/research`)).status, 202);
   const done = await waitFor(id, "done");
@@ -161,10 +154,9 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   assert.equal(done.notes, "typed by a person");
   assert.equal(done.strategy, "my own strategy", "a person's text is never overwritten");
   assert.equal(done.hq, "Chicago, IL");
-  assert.equal(done.s_chicago, 5);
-  assert.equal(done.s_mf, 2);
+  assert.ok(!done.s_chicago, "the AI does not score");
   assert.equal(done.review_status, "pending", "stays in review");
-  assert.match(done.ai_summary, /Chicago interest: 5\/5/);
+  assert.match(done.ai_summary, /Not scored: a person scores/);
   assert.equal(done.decision_text, "Pat Example | Head of acquisitions | pat@acme.example | https://www.linkedin.com/in/pat-example", "the AI found a point of contact");
 
   // the default model is the small one: basic web search and no fallback parameter
@@ -185,16 +177,13 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   assert.equal((await call("PATCH", `/api/investors/${id}`, { ai_status: "done" })).status, 400, "ai_ fields are server-only");
   assert.equal((await call("POST", "/api/investors", { name: "x", ai_summary: "forged" })).status, 400);
 
-  // a second run on a record whose scores a person already set keeps the person's scores
   // a contact a person already entered is never replaced
   const idKeep = await add("Has Contact Inc", { decision_text: "My Own Person | Boss | mine@example.com | " });
   await call("POST", `/api/investors/${idKeep}/research`);
   assert.equal((await waitFor(idKeep, "done")).decision_text, "My Own Person | Boss | mine@example.com | ");
   const id2 = await add("Scored By Hand Inc", { s_chicago: 1 });
   await call("POST", `/api/investors/${id2}/research`);
-  const d2 = await waitFor(id2, "done");
-  assert.equal(d2.s_chicago, 1);
-  assert.match(d2.ai_summary, /scores were already set by a person/);
+  assert.equal((await waitFor(id2, "done")).s_chicago, 1, "a person's score is untouched");
 
   // the model asks for another turn, then answers
   mode = "pause"; calls = 0;

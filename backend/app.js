@@ -85,7 +85,6 @@ function limiter({ windowMs, max }) {
 const STALE_MS = 6 * 60 * 1000;
 const dailyLimit = () => parseInt(process.env.AI_DAILY_LIMIT, 10) || 40;
 const runsToday = async pool => (await pool.query("select count(*)::int as n from research_runs where started_at > now() - interval '24 hours'")).rows[0].n;
-const SCORE_FIELDS = CRITERIA.map(c => c[1]);
 const TEXT_FIELDS = ["hq", "strategy", "check_size", "website", "linkedin", "contact_email", "decision_text", "sources_text", "deals_text"];
 
 async function setData(pool, id, patch) {
@@ -105,8 +104,6 @@ export async function runResearchJob(pool, id, name) {
     const patch = { ai_status: "done", ai_updated: data.ai_updated, ai_missing: data.ai_missing };
     let summary = data.ai_summary;
     for (const f of TEXT_FIELDS) if (!cur[f] && data[f]) patch[f] = data[f];
-    if (SCORE_FIELDS.some(f => cur[f] > 0)) summary += "\nNote: scores were already set by a person, so the AI scores above were not applied.";
-    else for (const f of SCORE_FIELDS) patch[f] = data[f];
     if (data.type && data.type !== cur.type) summary += `\nNote: the AI suggests the investor type may be ${data.type}.`;
     patch.ai_summary = summary.slice(0, 2000);
     await setData(pool, id, patch);
@@ -353,6 +350,22 @@ export function createApp(pool) {
       // removals are limited to 10 an hour from one place. The investor's outreach entries go too.
       // (With a team password on, only signed-in people can reach this at all.)
       const removeLimit = limiter({ windowMs: 3600_000, max: 10 });
+      // Several at once (the page's "Remove selected"): up to 50 ids, one limiter hit per request, all or nothing.
+      app.post("/api/investors-remove", removeLimit, async (req, res) => {
+        const ids = req.body && Array.isArray(req.body.ids) ? req.body.ids : [];
+        if (!req.body || req.body.confirmed !== true) return res.status(400).json({ error: "Confirm the removal first." });
+        if (!ids.length || ids.length > 50 || !ids.every(x => typeof x === "string" && ID_PATTERN.test(x)) || new Set(ids).size !== ids.length) return res.status(400).json({ error: "Send between 1 and 50 investors." });
+        const db = await pool.connect();
+        try {
+          await db.query("begin");
+          const gone = await db.query("delete from investors where id = any($1::text[])", [ids]);
+          const out = await db.query("delete from outreach where data->>'investor_rid' = any($1::text[])", [ids]);
+          await db.query("commit");
+          const by = typeof req.body.by === "string" ? req.body.by.replace(/[^\p{L}\p{N} .'-]/gu, "").slice(0, 60) : "";
+          console.log("investors removed:", gone.rowCount, "outreach entries removed:", out.rowCount, by ? "by " + by : "");
+          res.json({ deleted: gone.rowCount, outreachRemoved: out.rowCount });
+        } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
+      });
       app.delete("/api/investors/:id", removeLimit, async (req, res) => {
         if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
         if (!req.body || req.body.confirmed !== true) return res.status(400).json({ error: "Confirm the removal first." });

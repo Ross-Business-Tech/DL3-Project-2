@@ -187,12 +187,15 @@ function val(id){return document.getElementById(id).value}
 function days(a,b){return (Date.parse(a+"T00:00:00Z")-Date.parse(b+"T00:00:00Z"))/864e5}
 function norm(s){return String(s).toLowerCase().replace(/[^a-z0-9]/g,"")}
 function findDup(name){return INV.find(x=>norm(x.name)===norm(name))}
+const rankVal=i=>{const f=fit(i);return f.unscored?-1:f.t}; // investors nobody has scored sort last
+const fitLabel=i=>{const f=fit(i);return f.unscored?"Not scored":"Fit "+f.t};
 function wsum(){return CRIT.reduce((a,c)=>a+S.weights[c.k],0)}
 function share(k){const W=wsum();return W>0?Math.round(S.weights[k]*100/W):0}
 function fit(i){
   let raw=0;
   CRIT.forEach(c=>raw+=(i.scores[c.k]|0)*S.weights[c.k]/5);
   const W=wsum();
+  if(!CRIT.some(c=>(i.scores[c.k]|0)>0)) return {t:0,capped:false,unscored:true};
   let t=W>0?Math.round(raw*100/W):0, capped=false;
   if(i.scores.evidence===0&&t>60){t=60;capped=true}
   return {t,capped};
@@ -327,6 +330,7 @@ function toRec(i) {
     next_date: i.next || "", last_date: i.last || "", notes: i.notes || "", suppressed: !!i.suppressed, self_reported: !!i.selfReported,
     review_status: i.review || "approved",
     website: i.website || "", linkedin: i.linkedin || "", contact_email: i.contactEmail || "", no_website: !!i.noWebsite,
+    rank_feedback: i.rankFeedback || "",
     intro_text: (i.rel || []).map(r => [r.holder, r.knows, r.confirmed || ""].join(" | ")).join("\n")
   };
 }
@@ -341,6 +345,7 @@ function fromRec(r, k) {
     next: d.next_date || "", last: d.last_date || AS_OF, suppressed: !!d.suppressed, rel: lines(d.intro_text).map(l => { const p = l.split("|").map(x => x.trim()); return { holder: p[0] || "", knows: p[1] || "", confirmed: p[2] || "" }; }), notes: d.notes || "", acts: [], history: [],
     review: d.review_status || "approved",
     website: d.website || "", linkedin: d.linkedin || "", contactEmail: d.contact_email || "", noWebsite: !!d.no_website,
+    rankFeedback: d.rank_feedback || "",
     aiStatus: d.ai_status || "", aiSummary: d.ai_summary || "", aiMissing: d.ai_missing || "", aiUpdated: d.ai_updated || "", aiStarted: d.ai_started || ""
   };
 }
@@ -502,17 +507,18 @@ function csvCell(v) {
   if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stops spreadsheet programs treating text as a formula
   return '"' + s.replace(/"/g, '""') + '"';
 }
-async function exportCsv() {
+async function exportCsv(onlySelected) {
   let note = "";
   if (window.INVESTORS_API) { try { await loadInv(); } catch (e) { note = " (could not refresh from the database, so this is what was on screen)"; } }
   const head = ["record_id", "name", "type", "hq", "website", "firm_linkedin", "firm_contact_email", "strategy", "check_size",
     "score_chicago", "score_multifamily", "score_check_size", "score_strategy", "score_evidence", "score_capital", "fit", "fit_capped", "confidence",
     "review_status", "stage", "owner", "outreach_approval", "next_follow_up", "flags", "sources", "deals", "contacts", "notes",
     "ai_status", "ai_summary", "ai_missing", "suppressed"].concat(CRIT.filter(c => c.custom).map(c => "score_" + c.label));
-  const rows = INV.map(i => {
+  const chosen = onlySelected ? selected() : INV;
+  const rows = chosen.map(i => {
     const f = fit(i);
     return [i.rid || i.id, i.name, i.type, i.hq, i.website, i.linkedin, i.contactEmail, i.strategy, i.check,
-      i.scores.chicago, i.scores.mf, i.scores.check, i.scores.strategy, i.scores.evidence, i.scores.capital, f.t, f.capped ? "yes" : "no", conf(i),
+      i.scores.chicago, i.scores.mf, i.scores.check, i.scores.strategy, i.scores.evidence, i.scores.capital, f.unscored ? "" : f.t, f.capped ? "yes" : "no", conf(i),
       i.review === "pending" ? "pending" : "confirmed", i.stage, i.owner, i.approval ? i.approval.by + " " + i.approval.date : "none", i.next,
       flags(i).join("; "), i.sources.map(s => `${s.label} ${s.url} (${s.published || "undated"})`).join(" ; "), i.deals.join(" ; "),
       i.decisionMakers.map(d => [d.name, d.title, d.email, d.linkedin].filter(Boolean).join(", ")).join(" ; "), i.notes,
@@ -521,10 +527,10 @@ async function exportCsv() {
   const csv = "﻿" + [head.join(","), ...rows.map(r => r.map(csvCell).join(","))].join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  a.download = "dl3-investors-" + new Date().toISOString().slice(0, 10) + ".csv";
+  a.download = (onlySelected ? "dl3-selected-investors-" : "dl3-investors-") + new Date().toISOString().slice(0, 10) + ".csv";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  S.msg = "Downloaded " + INV.length + " investors as a CSV file" + note + ".";
+  S.msg = "Downloaded " + chosen.length + " investor" + (chosen.length === 1 ? "" : "s") + " as a CSV file" + note + ".";
   render();
 }
 
@@ -543,7 +549,7 @@ async function exportContactsCsv() {
   const rows = [];
   for (const i of INV) {
     if (i.suppressed) continue; // asked to be removed: never exported
-    const firm = [i.website, i.type, i.hq, fit(i).t, i.approval ? "yes" : "no"];
+    const firm = [i.website, i.type, i.hq, fit(i).unscored ? "" : fit(i).t, i.approval ? "yes" : "no"];
     if (realContacts(i).length) realContacts(i).forEach(d => rows.push([i.name, d.name, d.title, d.email, d.linkedin, ...firm]));
     else if (i.contactEmail) rows.push([i.name, "", "", i.contactEmail, i.linkedin, ...firm]);
   }
@@ -668,7 +674,7 @@ async function researchBatch(rids) {
     S.batch.done++; render();
   }
   const b = S.batch; b.running = false;
-  S.msg = "Researched " + (b.done - b.failed) + " of " + b.total + " imported investors." + (b.failed ? " " + b.failed + " did not finish." : "") + (b.msg ? " " + b.msg : "") + " Open each one, check it, and press Confirm record.";
+  S.msg = "Researched " + (b.done - b.failed) + " of " + b.total + " imported investors." + (b.failed ? " " + b.failed + " did not finish." : "") + (b.msg ? " " + b.msg : "") + " Open each one, check it, score it, and press Confirm record.";
   try { S.research = await api("GET", "/api/research/status"); } catch (e) { /* keep */ }
   render();
 }
@@ -687,7 +693,7 @@ function importResultHtml(r) {
     ${r.skippedIndividuals ? ` ${r.skippedIndividuals} individual people ignored (firms only).` : ""}
     ${r.leftOver ? ` ${r.leftOver} more firms were not imported because one import is limited to 50. Run it again for the rest.` : ""}</p>
     ${names}${run}
-    <p class="muted">Details come only from the file or page and are unchecked. Scores need the research step, so the new investors rank low until they are researched and confirmed.</p></div>`;
+    <p class="muted">Details come only from the file or page and are unchecked. New investors show "Not scored yet" until a person scores them; the AI research gathers facts and sources but does not score.</p></div>`;
 }
 function vImport() {
   const ready = importReady();
@@ -735,17 +741,22 @@ function render() {
 const OUTREACH_STAGES = ["contacted", "meeting scheduled", "in diligence", "committed"];
 const VIEWS = [
   ["all", "All", () => true],
-  ["meets", "Meets criteria", i => fit(i).t >= FIT_THRESHOLD],
+  ["meets", "Meets criteria", i => !fit(i).unscored && fit(i).t >= FIT_THRESHOLD],
+  ["unscored", "Not scored yet", i => fit(i).unscored && !i.suppressed],
+  ["top10", "Top 10 shortlist", i => top10().includes(i)],
   ["confirm", "To confirm", i => i.review === "pending"],
   ["fix", "Needs fixing", i => flags(i).length > 0],
   ["ready", "Ready for outreach", i => i.stage === "approved for outreach"],
   ["outreach", "In outreach", i => OUTREACH_STAGES.includes(i.stage)]
 ];
+function top10() { // the 10 highest scores among investors a person has confirmed and scored
+  return INV.filter(i => i.review !== "pending" && !i.suppressed && !fit(i).unscored).sort((a, b) => rankVal(b) - rankVal(a)).slice(0, 10);
+}
 const viewTest = k => (VIEWS.find(v => v[0] === k) || VIEWS[0])[2];
 function filtered(){
   const f = S.filters, q = (S.q || "").toLowerCase().trim(), inView = viewTest(S.view);
-  return INV.filter(i => inView(i) && fit(i).t >= (+f.minFit || 0) && (!f.conf || conf(i) === f.conf) && (!f.type || i.type === f.type) && (!f.stage || i.stage === f.stage) && (!q || i.name.toLowerCase().includes(q)))
-    .sort((a, b) => fit(b).t - fit(a).t);
+  return INV.filter(i => inView(i) && (!(+f.minFit) || rankVal(i) >= +f.minFit) && (!f.conf || conf(i) === f.conf) && (!f.type || i.type === f.type) && (!f.stage || i.stage === f.stage) && (!q || i.name.toLowerCase().includes(q)))
+    .sort((a, b) => S.view === "top10" ? top10().indexOf(a) - top10().indexOf(b) : rankVal(b) - rankVal(a));
 }
 function setView(k) { S.view = k; render(); }
 function setQ(v) { S.q = v; const el = document.getElementById("invList"); if (el) el.innerHTML = listHtml(); }
@@ -760,14 +771,127 @@ function siteLine(i) { // the website and the point of contact, so both are visi
   const cs = realContacts(i);
   return site + " · " + (cs.length ? "Contact: " + esc(cs[0].name) + (cs.length > 1 ? " +" + (cs.length - 1) : "") : "No contact yet");
 }
+S.sel = {}; // ticked investors, by record id
+const selKey = i => i.rid || i.id;
+const selected = () => INV.filter(i => S.sel[selKey(i)]);
+function toggleSel(k, on) { if (on) S.sel[k] = true; else delete S.sel[k]; S.rmAsk = false; updateBulk(); }
+function selectAllShown(on) { filtered().forEach(i => { if (on) S.sel[selKey(i)] = true; else delete S.sel[selKey(i)]; }); S.rmAsk = false; const el = document.getElementById("invList"); if (el) el.innerHTML = listHtml(); updateBulk(); }
+function clearSel() { S.sel = {}; S.rmAsk = false; const el = document.getElementById("invList"); if (el) el.innerHTML = listHtml(); updateBulk(); }
+function updateBulk() {
+  const el = document.getElementById("bulkBar"); if (!el) return;
+  const keep = ["bk_owner", "bk_stage"].map(id => { const x = document.getElementById(id); return x ? x.value : null; });
+  el.innerHTML = bulkBarHtml();
+  ["bk_owner", "bk_stage"].forEach((id, n) => { const x = document.getElementById(id); if (x && keep[n] !== null) x.value = keep[n]; });
+  const all = document.getElementById("selAll"), shown = filtered();
+  if (all) all.checked = shown.length > 0 && shown.every(i => S.sel[selKey(i)]);
+}
+function bulkBarHtml() {
+  const sel = selected(), n = sel.length;
+  if (!n) return '<div class="row" style="margin-bottom:6px"><span class="muted">Tick investors to act on several at once.</span><button onclick="selectAllShown(true)">Select all shown</button></div>';
+  const b = S.batch && S.batch.running;
+  const canResearch = !!(window.INVESTORS_API && S.research && S.research.enabled);
+  const rm = S.rmAsk ? `<div class="card" style="margin:8px 0 0;border-color:#9b2226"><strong>Remove ${n} investor${n === 1 ? "" : "s"} permanently?</strong>
+      <p>This deletes ${n === 1 ? "this investor" : "these " + n + " investors"} and every outreach entry logged for them. It cannot be undone. Only do this if they asked to be removed.</p>
+      <label><input type="checkbox" id="bk_rm_ok"> I confirm ${n === 1 ? "this investor has" : "these investors have"} asked to be removed from the database</label>
+      <div class="row" style="margin-top:8px"><button class="dangerbtn" onclick="bulkRemove()">Remove ${n} permanently</button><button onclick="S.rmAsk=false;updateBulk()">Cancel</button></div></div>` : "";
+  return `<div class="card" style="margin:0 0 8px;border-color:#23c6b5"><strong>${n} selected</strong>
+    <div class="row" style="margin-top:6px">
+      ${canResearch ? `<button ${b ? "disabled" : ""} onclick="bulkResearch()">Run AI research</button>` : ""}
+      <button onclick="bulkApprove()">Approve for outreach</button>
+      <button onclick="bulkCsv()">Download CSV</button>
+      <button class="dangerbtn" onclick="S.rmAsk=true;updateBulk()">Remove selected</button>
+      <button onclick="selectAllShown(true)">Select all shown</button><button onclick="clearSel()">Clear</button></div>
+    <div class="row" style="margin-top:6px">
+      <label>Owner <input id="bk_owner" maxlength="80" placeholder="Name" style="width:140px"></label><button onclick="bulkOwner()">Set owner</button>
+      <label>Stage <select id="bk_stage">${STAGES.map(s => `<option>${s}</option>`).join("")}</select></label><button onclick="bulkStage()">Move to stage</button></div>
+    ${b ? `<div class="notice" style="margin:8px 0 0">Researching ${S.batch.done} of ${S.batch.total}. <button onclick="S.batch.stop=true">Stop after this one</button></div>` : ""}
+    ${rm}</div>`;
+}
+async function eachSaved(list, fn) { // applies fn to each, saves each, and counts what saved
+  let ok = 0, failed = 0;
+  for (const i of list) { fn(i); try { await persist(i); ok++; } catch (e) { failed++; } }
+  return { ok, failed };
+}
+const outcome = (verb, r, skipped) => verb + " " + r.ok + " investor" + (r.ok === 1 ? "" : "s") + "." + (skipped ? " " + skipped + " skipped (" + "not eligible)." : "") + (r.failed ? " " + r.failed + " could not be saved." : "");
+async function bulkResearch() {
+  const rids = selected().filter(i => i.rid && i.review === "pending" && i.aiStatus !== "running").map(i => i.rid);
+  if (!rids.length) { S.msg = "Research only runs on investors waiting for review (To confirm). None of the selected investors are."; render(); return; }
+  await researchBatch(rids);
+}
+async function bulkApprove() {
+  if (!S.who) { S.msg = "Type your name at the top of the page first, so the approval shows who gave it."; render(); const w = document.getElementById("whoIn"); if (w) w.focus(); return; }
+  const sel = selected(), ok = sel.filter(i => i.review !== "pending" && !i.approval && !i.suppressed);
+  const r = await eachSaved(ok, i => {
+    i.approval = { by: S.who, date: todayStr() };
+    if (PRE_APPROVAL.includes(i.stage)) { i.history.unshift({ date: todayStr(), role: who(), field: "stage", from: i.stage, to: "approved for outreach" }); i.stage = "approved for outreach"; }
+  });
+  S.msg = outcome("Approved outreach for", r, sel.length - ok.length) + (sel.length - ok.length ? " Skipped ones are still to confirm, already approved, or asked to be removed." : "");
+  render();
+}
+async function bulkOwner() {
+  const o = cleanText(val("bk_owner"), 80);
+  if (!o) { S.msg = "Type the owner's name first."; render(); return; }
+  const r = await eachSaved(selected(), i => { i.owner = o; });
+  S.msg = outcome("Set the owner to " + o + " on", r, 0); render();
+}
+async function bulkStage() {
+  const st = val("bk_stage"), sel = selected();
+  const needsApproval = OUTREACH_STAGES.concat(["approved for outreach"]).includes(st);
+  const ok = sel.filter(i => !needsApproval || i.approval);
+  const r = await eachSaved(ok, i => { i.history.unshift({ date: todayStr(), role: who(), field: "stage", from: i.stage, to: st }); i.stage = st; });
+  S.msg = outcome("Moved to " + st + ":", r, sel.length - ok.length) + (sel.length - ok.length ? " Outreach stages need the outreach approval first." : "");
+  render();
+}
+async function bulkCsv() { await exportCsv(true); }
+async function bulkRemove() {
+  const sel = selected().filter(i => i.rid), n = sel.length;
+  const ok = document.getElementById("bk_rm_ok");
+  if (!n) return;
+  if (!ok || !ok.checked) { S.msg = "Tick the box to confirm that these investors asked to be removed."; render(); return; }
+  if (!window.confirm("Permanently remove " + n + " investor" + (n === 1 ? "" : "s") + " and all their outreach entries from the database? This cannot be undone.")) return;
+  let removed = 0, outreach = 0, failed = 0;
+  for (let k = 0; k < sel.length; k += 50) {
+    const chunk = sel.slice(k, k + 50);
+    try {
+      const r = await api("POST", COL.replace(/investors$/, "investors-remove"), { confirmed: true, by: S.who, ids: chunk.map(i => i.rid) });
+      removed += r.deleted; outreach += r.outreachRemoved;
+      INV = INV.filter(x => !chunk.includes(x)); chunk.forEach(i => delete S.sel[selKey(i)]);
+      T.outreach = T.outreach.filter(o => !chunk.some(i => i.rid === o.investor_rid));
+    } catch (e) { failed += chunk.length; S.msg = "Could not remove some investors: " + (e.detail || e.message); }
+  }
+  S.rmAsk = false;
+  if (!failed) S.msg = "Removed " + removed + " investor" + (removed === 1 ? "" : "s") + " and " + outreach + " outreach entr" + (outreach === 1 ? "y" : "ies") + ".";
+  render();
+}
 function listHtml() {
   const rows = filtered().map(i => `<tr style="cursor:pointer" onclick="selectInv('${esc(i.id)}')">
+    <td data-label="" onclick="event.stopPropagation()"><input type="checkbox" ${S.sel[selKey(i)] ? "checked" : ""} onchange="toggleSel('${esc(selKey(i))}',this.checked)" aria-label="Select ${esc(i.name)}"></td>
     <td data-label="Investor"><strong>${esc(i.name)}</strong><div class="muted" style="font-size:12px">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div><div class="muted" style="font-size:12px">${siteLine(i)}</div></td>
-    <td data-label="Fit">${fit(i).t}${fit(i).t < FIT_THRESHOLD ? `<div class="muted" style="font-size:12px">below ${FIT_THRESHOLD}</div>` : ""}</td>
+    <td data-label="Fit">${fit(i).unscored ? '<span class="muted">Not scored yet</span>' : fit(i).t + (fit(i).t < FIT_THRESHOLD ? `<div class="muted" style="font-size:12px">below ${FIT_THRESHOLD}</div>` : "")}</td>
     <td data-label="Status">${i.review === "pending" ? "To confirm" : "Confirmed"} · ${esc(conf(i))} confidence</td>
     <td data-label="Stage">${esc(i.stage)}</td>
     <td data-label="To fix">${flagChipsShort(i, 2)}</td></tr>`).join("");
-  return `<table class="rtable"><thead><tr><th>Investor</th><th>Fit</th><th>Status</th><th>Stage</th><th>To fix</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted">No investors match.</td></tr>'}</tbody></table>`;
+  return `<table class="rtable"><thead><tr><th><input type="checkbox" id="selAll" onchange="selectAllShown(this.checked)" aria-label="Select all shown"></th><th>Investor</th><th>Fit</th><th>Status</th><th>Stage</th><th>To fix</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="muted">No investors match.</td></tr>'}</tbody></table>`;
+}
+function pilotPanel() {
+  const all = INV.filter(i => !i.suppressed), n = all.length;
+  if (!n) return "";
+  const pct = (a, b) => (b ? Math.round(a * 100 / b) : 0) + "%";
+  const scored = all.filter(i => !fit(i).unscored), meets = scored.filter(i => fit(i).t >= FIT_THRESHOLD).length;
+  const history = all.filter(i => i.deals.length > 0 && i.sources.some(s => /^https:\/\//.test(s.url))).length;
+  const contacts = all.filter(i => realContacts(i).some(d => d.email || d.linkedin) || i.contactEmail).length;
+  const rated = all.filter(i => i.rankFeedback), agree = rated.filter(i => i.rankFeedback === "agree").length;
+  const row = (label, val, note) => `<tr><td>${label}</td><td><strong>${val}</strong></td><td class="muted">${note}</td></tr>`;
+  return `<details class="card" ${S.open.pilot ? "open" : ""} ontoggle="S.open.pilot=this.open"><summary><strong>Pilot results</strong> <span class="muted">(the measures from the scoping worksheet, live from the data)</span></summary>
+    <div class="wrap" style="margin-top:8px"><table><thead><tr><th>Measure</th><th>Now</th><th>Based on</th></tr></thead><tbody>
+    ${row("Investors in the pilot list", n, "all investors not asked to be removed")}
+    ${row("Scored by a person", pct(scored.length, n), scored.length + " of " + n)}
+    ${row("Meeting DL3's criteria (fit " + FIT_THRESHOLD + "+)", pct(meets, scored.length), meets + " of " + scored.length + " scored")}
+    ${row("With a sourced deal history", pct(history, n), history + " of " + n + ": at least one deal and a web source")}
+    ${row("With a current, reachable contact", pct(contacts, n), contacts + " of " + n + ": an email or LinkedIn link")}
+    ${row("Ranking judged right by DL3", rated.length ? pct(agree, rated.length) : "No ratings yet", rated.length ? agree + " of " + rated.length + " rated. Rate on each investor's page." : "Open an investor and answer 'Does this ranking look right?'")}
+    ${row("Time saved per qualified prospect", "Not measured", "Needs DL3's usual minutes per prospect to compare against")}
+    </tbody></table></div></details>`;
 }
 function vProspects(){
   if (S.selected) {
@@ -814,8 +938,10 @@ function vProspects(){
     <div style="margin-bottom:8px">${chips}</div>
     <details ${S.open.filters ? "open" : ""} ontoggle="S.open.filters=this.open"><summary class="muted">More filters</summary>
       <div class="row" style="margin-top:6px"><label>Min fit <input type="number" min="0" max="100" value="${esc(f.minFit)}" style="width:70px" onchange="setF('minFit',this.value)"></label>${sel("conf", ["High", "Medium", "Low"], f.conf, "Any confidence")}${sel("type", TYPES, f.type, "Any type")}${sel("stage", STAGES, f.stage, "Any stage")}</div></details>
+    <div id="bulkBar" style="margin-top:8px">${bulkBarHtml()}</div>
     <div id="invList" style="margin-top:8px">${listHtml()}</div>
   </div>
+  ${pilotPanel()}
   <details class="card" ${S.open.groups ? "open" : ""} ontoggle="S.open.groups=this.open"><summary><strong>Browse by group</strong> <span class="muted">(flag, type, confidence or stage)</span></summary><div style="margin-top:8px">${groupsCard()}</div></details>`;
 }
 
@@ -826,10 +952,21 @@ function table(h,rows){
 function metric(v,l){return `<div class="card metric"><div class="v">${v}</div><div class="l">${l}</div></div>`}
 function nameLink(i){return `<a href="#" onclick="go('Prospects');selectInv('${i.id}');return false">${esc(i.name)}</a>`}
 
+async function setFeedback(id, v) {
+  const i = INV.find(x => x.id === id); if (!i) return;
+  i.rankFeedback = i.rankFeedback === v ? "" : v; // pressing the same answer again clears it
+  S.msg = await saveRemote(i, i.rankFeedback ? "Thanks. Saved your view on this ranking for " + i.name + "." : "Cleared the rating for " + i.name + ".");
+  render();
+}
+const FEEDBACK = [["agree", "Looks right"], ["high", "Ranked too high"], ["low", "Ranked too low"]];
+function feedbackHtml(i) {
+  if (fit(i).unscored) return "";
+  return `<div class="muted" style="margin:8px 0 2px">Does this ranking look right to you?</div><div class="row">${FEEDBACK.map(([k, l]) => `<button type="button" class="chip linkchip ${i.rankFeedback === k ? "on" : ""}" onclick="setFeedback('${esc(i.id)}','${k}')">${l}</button>`).join(" ")}</div>`;
+}
 function detail(i) {
   const f = fit(i), W = S.weights, pending = i.review === "pending";
   const scRows = CRIT.map(c => [esc(c.label), `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === (i.scores[c.k] | 0) ? "selected" : ""}>${n}</option>`).join("")}</select>`, share(c.k) + "%", ((i.scores[c.k] | 0) * W[c.k] / 5 * 100 / Math.max(1, wsum())).toFixed(1)]);
-  scRows.push(["Total", `<strong>${f.t}</strong>`, "100%", f.capped ? "held at 60 (no verified deals)" : ""]);
+  scRows.push(["Total", f.unscored ? "<strong>Not scored yet</strong>" : `<strong>${f.t}</strong>`, "100%", f.unscored ? "Score each criterion below. The AI does not score." : f.capped ? "held at 60 (no verified deals)" : ""]);
   const scTable = `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Score (0 to 5)</th><th>Share of score</th><th>Points</th></tr></thead><tbody>${scRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   const rel = i.rel.length ? i.rel.map(r => `${esc(r.holder)}: ${esc(r.knows)}${r.confirmed ? ", confirmed " + esc(r.confirmed) : ""}`).join("<br>") : "None recorded";
   const src = i.sources.length ? table(["Source", "Link", "Published"], i.sources.map(s => [esc(s.label), /^https:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">open</a>` : esc(s.url), s.published ? esc(s.published) : '<span class="flag">missing</span>'])) : '<div class="muted">No sources yet.</div>';
@@ -843,7 +980,7 @@ function detail(i) {
     ? `<button ${running ? "disabled" : ""} onclick="runResearch('${esc(i.id)}')">${running ? "Researching..." : i.aiStatus === "done" ? "Run AI research again" : "Run AI research"}</button>`
     : `<button disabled title="${window.INVESTORS_API ? "AI research is not set up yet" : "Available on the Render version"}">Run AI research</button>`;
   const aiBlock = i.aiStatus ? `<div class="card" style="margin:8px 0 0"><strong>AI research: ${esc(i.aiStatus)}</strong>${i.aiUpdated ? ` <span class="muted">(${esc(i.aiUpdated)})</span>` : ""}<div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc(i.aiSummary)}</div>${i.aiMissing ? `<div style="margin-top:6px"><strong>Still to check or fill in</strong><div class="flag" style="white-space:pre-wrap">${esc(i.aiMissing)}</div></div>` : ""}<div class="muted" style="margin-top:6px">The AI can be wrong. A person must check every score and source before confirming.</div></div>` : "";
-  const next = pending ? "Check the details and fix the flags below, then confirm the details."
+  const next = pending ? "Check the details, score the investor and fix the flags below, then confirm the details."
     : !i.approval ? "The details are confirmed. Approve this investor for outreach when DL3 is ready to contact them."
     : "Approved by " + esc(i.approval.by) + " on " + esc(i.approval.date) + ". Log each contact on the Outreach page.";
   const actions = (pending ? `<button class="primary" onclick="confirmRecord('${esc(i.id)}')">Confirm details</button>` : "")
@@ -884,7 +1021,7 @@ function detail(i) {
   return `<div class="card">
     <h2 style="margin-top:0">${esc(i.name)}</h2>
     <div class="muted">${esc(i.type)}${i.hq ? " · " + esc(i.hq) : ""}</div>
-    <div class="row" style="margin-top:8px"><span class="chip">Fit ${f.t}</span><span class="chip">${esc(conf(i))} confidence</span><span class="chip">${pending ? "To confirm" : "Confirmed"}</span><span class="chip">${i.approval ? "Approved by " + esc(i.approval.by) : "Not approved yet"}</span><span class="chip">${esc(i.stage)}</span></div>
+    <div class="row" style="margin-top:8px"><span class="chip">${f.unscored ? "Not scored yet" : "Fit " + f.t}</span><span class="chip">${esc(conf(i))} confidence</span><span class="chip">${pending ? "To confirm" : "Confirmed"}</span><span class="chip">${i.approval ? "Approved by " + esc(i.approval.by) : "Not approved yet"}</span><span class="chip">${esc(i.stage)}</span></div>${feedbackHtml(i)}
     <p style="margin:10px 0 6px">${next}</p>
     <div class="row">${actions}</div>
     <h3>To fix</h3>${flagFixRows(i, -1)}
@@ -912,7 +1049,7 @@ function scoringEditor() {
     <div class="row"><label>Name <input id="nc_name" maxlength="60" placeholder="e.g. Existing relationship with DL3"></label>
       <label>Weight <input type="number" min="0" max="100" step="1" id="nc_w" value="10" style="width:80px"></label>
       <button onclick="addCriterion()">Add criterion</button></div>
-    <div class="muted" style="margin-top:6px">A new criterion is scored 0 to 5 on each investor's page, under Edit scores and details. Until someone scores an investor on it, it counts as 0, so everyone's score may drop at first. The AI research only scores the six original criteria.</div>
+    <div class="muted" style="margin-top:6px">A new criterion is scored 0 to 5 on each investor's page, under Edit scores and details. Until someone scores an investor on it, it counts as 0, so everyone's score may drop at first. The AI research never scores; people do all the scoring.</div>
     <div id="scerr" class="bad" role="alert" style="margin-top:6px"></div>`;
 }
 function liveShare() {

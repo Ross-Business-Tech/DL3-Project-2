@@ -128,6 +128,17 @@ const FLAG_CATALOG = [
       return msg.length ? { msg: msg.join(" and ") } : { error: "Add a source, or tick the box if it applies." };
     } },
 
+  { key: "unscored", label: "Not scored yet", test: i => fit(i).unscored && !i.suppressed,
+    help: "Nobody has scored this investor yet. Score each criterion from 0 to 5 using the sources, deals and notes. The AI only researches; people score.",
+    save: "Save scores",
+    form: i => `<div class="formgrid">${CRIT.map(c => `<label>${esc(c.label)}<select id="fxs_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option>${n}</option>`).join("")}</select></label>`).join("")}</div>`,
+    apply: i => {
+      let any = false;
+      CRIT.forEach(c => { const v = +val("fxs_" + c.k); i.scores[c.k] = v; if (v > 0) any = true; });
+      if (!any) return { error: "Give at least one criterion a score above 0." };
+      return { msg: "scores saved" };
+    } },
+
   { key: "capped", label: "No verified deals", test: i => fit(i).capped,
     help: "No verified deals are recorded, so the fit score is held at 60. Add a deal this firm really did, and give the evidence score it deserves.",
     save: "Add deal",
@@ -185,20 +196,20 @@ function groupTitle(g) {
 }
 function groupMembers(g) {
   const test = g.kind === "any" ? i => flags(i).length > 0 : g.kind === "flag" ? i => FLAG_CATALOG[g.value].test(i) : g.kind === "stage" ? i => i.stage === g.value : g.kind === "type" ? i => i.type === g.value : i => conf(i) === g.value;
-  return INV.filter(test).sort((a, b) => fit(b).t - fit(a).t);
+  return INV.filter(test).sort((a, b) => rankVal(b) - rankVal(a));
 }
 const gchip = (label, count, kind, value) => `<button type="button" class="chip linkchip" onclick="openGroup('${kind}',${typeof value === "number" ? value : "'" + esc(value) + "'"})">${esc(label)}: ${count}</button>`;
 
 /* ---------- Summary of a group ---------- */
 function groupSummary(list) {
-  const n = list.length, fits = list.map(i => fit(i).t);
+  const n = list.length, fits = list.filter(i => !fit(i).unscored).map(i => fit(i).t);
   const count = fn => list.filter(fn).length;
   const confs = ["High", "Medium", "Low"].map(c => [c, count(i => conf(i) === c)]);
   const flagCounts = FLAG_CATALOG.map((f, k) => [k, count(i => f.test(i))]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
   const stages = STAGES.map(s => [s, count(i => i.stage === s)]).filter(x => x[1] > 0);
   const types = TYPES.map(t => [t, count(i => i.type === t)]).filter(x => x[1] > 0);
   return {
-    n, avg: n ? Math.round(fits.reduce((a, b) => a + b, 0) / n) : 0, min: n ? Math.min(...fits) : 0, max: n ? Math.max(...fits) : 0,
+    n, avg: fits.length ? Math.round(fits.reduce((a, b) => a + b, 0) / fits.length) : 0, min: fits.length ? Math.min(...fits) : 0, max: fits.length ? Math.max(...fits) : 0,
     confs, flagCounts, stages, types, pending: count(i => i.review === "pending"), approved: count(i => i.approval), withFlags: count(i => flags(i).length > 0)
   };
 }
@@ -243,7 +254,7 @@ function flagFixRows(i, hereIdx) {
 function groupCard(i, g) {
   return `<div class="card"><div class="row" style="justify-content:space-between">
       <strong><a href="#" onclick="go('Prospects');selectInv('${esc(i.id)}');return false">${esc(i.name)}</a></strong>
-      <span class="muted">Fit ${fit(i).t} · ${esc(conf(i))} confidence · ${esc(i.stage)} · ${esc(i.type)}</span></div>
+      <span class="muted">${fitLabel(i)} · ${esc(conf(i))} confidence · ${esc(i.stage)} · ${esc(i.type)}</span></div>
       <div style="margin-top:6px">${flagFixRows(i, g.kind === "flag" ? g.value : -1)}</div></div>`;
 }
 

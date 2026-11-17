@@ -17,12 +17,11 @@ Never paste passwords or API keys into the code or the chat. Keys go in Render's
 ## Automatic research (AI)
 
 On an investor that is **Pending review**, the **Run AI research** button (or **Add and research**)
-asks Claude to search the web for the firm and propose the six scores, with the pages it used.
+asks the AI to search the web for the firm and report facts (strategy, check size, deals, contact) with the pages it used. People do the scoring.
 
 What it does and does not do:
 - It only fills empty fields and never overwrites what a person typed. Confirmed investors are never changed.
-- It keeps a source only if the web search really returned that page. A score of 3 or more needs a source, and
-  "evidence of deals" is 0 without a sourced deal. Everything it could not find is listed as **Still to check or fill in**.
+- It keeps a source only if the web search really returned that page. It does **not** score: people score each investor, and until they do the investor shows "Not scored yet". Everything it could not find is listed as **Still to check or fill in**.
 - It proposes one point of contact (a name and role, with an email or LinkedIn link) only when a search result shows it. An email must be on the firm's own website domain, and the AI is told never to guess or construct one. A contact a person already entered is never replaced.
 - A person always reviews the result and presses **Confirm record**.
 

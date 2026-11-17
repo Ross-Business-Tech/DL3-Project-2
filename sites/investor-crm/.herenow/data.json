@@ -146,6 +146,10 @@
     "extra_scores": {
      "type": "string",
      "maxLength": 1500
+    },
+    "rank_feedback": {
+     "type": "string",
+     "maxLength": 20
     }
    },
    "access": {

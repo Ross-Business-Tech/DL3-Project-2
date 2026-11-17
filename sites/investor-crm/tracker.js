@@ -254,10 +254,10 @@ async function addProject() {
 
 /* ---------- Approvals: who may DL3 contact? ---------- */
 function approvalsCard() {
-  const waiting = INV.filter(i => i.review !== "pending" && !i.approval && !i.suppressed).sort((a, b) => fit(b).t - fit(a).t);
+  const waiting = INV.filter(i => i.review !== "pending" && !i.approval && !i.suppressed).sort((a, b) => rankVal(b) - rankVal(a));
   const unconfirmed = INV.filter(i => i.review === "pending" && !i.suppressed).length;
   const shown = T.showAllApprovals ? waiting : waiting.slice(0, 5);
-  const rows = shown.map(i => `<div class="flagrow"><span><a href="#" onclick="go('Prospects');selectInv('${esc(i.id)}');return false">${esc(i.name)}</a> <span class="muted">· fit ${fit(i).t}</span></span>
+  const rows = shown.map(i => `<div class="flagrow"><span><a href="#" onclick="go('Prospects');selectInv('${esc(i.id)}');return false">${esc(i.name)}</a> <span class="muted">· ${fitLabel(i)}</span></span>
     <button class="primary" onclick="approve('${esc(i.id)}')">Approve for outreach</button></div>`).join("");
   const more = waiting.length > 5 ? `<button style="margin-top:8px" onclick="T.showAllApprovals=!T.showAllApprovals;render()">${T.showAllApprovals ? "Show fewer" : "Show all " + waiting.length}</button>` : "";
   return `<h2>Waiting for approval</h2><div class="card">
@@ -339,7 +339,7 @@ function vTracker() {
     const sc = softCircled(p.name), tgt = +p.target_m || 0, pct = tgt ? Math.min(100, Math.round(sc / tgt * 100)) : 0;
     const strong = cs.filter(c => interestOf(c.last.interest).score >= 60).length;
     const touched = new Set(cs.map(c => c.investor_rid || c.investor_name));
-    const ideas = INV.filter(i => !i.suppressed && !touched.has(i.rid || i.id) && !touched.has(i.name)).sort((a, b) => fit(b).t - fit(a).t).slice(0, 3);
+    const ideas = INV.filter(i => !i.suppressed && !touched.has(i.rid || i.id) && !touched.has(i.name)).sort((a, b) => rankVal(b) - rankVal(a)).slice(0, 3);
     const need = tgt && sc < tgt ? `<div class="notice" style="margin:8px 0 0"><strong>${money(tgt - sc)} still to find.</strong> ${strong < 3 ? "Fewer than 3 interested investors. " : ""}Best-fit investors not yet contacted for this project: ${ideas.map(i => esc(i.name) + " (fit " + fit(i).t + (i.approval ? "" : ", needs approval") + ")").join("; ") || "none left"}.</div>` : tgt ? `<div class="notice good" style="margin:8px 0 0">Target covered by soft-circled interest.</div>` : "";
     const rows = cs.map(c => [
       `<a href="#" onclick="go('Prospects');selectInv('${esc((invFor(c.last) || {}).id || "")}');return false">${esc(c.investor_name)}</a>`,
