@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Small API and web server for the DL3 investor CRM (Render)",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=1"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "express": "^5.1.0",
     "pg": "^8.13.0"
   }

@@ -5,11 +5,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { researchEnabled, askModel, sanitizeResult, CRITERIA, clip } from "./research.js";
+import { askPdf, askWebsite, sanitizeFirms, checkWebsiteUrl, MAX_PDF_BYTES } from "./importer.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_DIR = path.resolve(HERE, "../sites/investor-crm");
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(SITE_DIR, ".herenow/data.json"), "utf8"));
-const FIELDS = MANIFEST.collections.investors.fields; // single source of truth for allowed fields
 const MAX_RECORD_BYTES = 16 * 1024;
 const ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const ID_PATTERN = /^rec_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -21,20 +22,32 @@ export function newId() {
   return s;
 }
 
-// Check a request body against the field list. Returns { data } or { error }.
-export function validate(body, { requireName }) {
+const COLLECTIONS = Object.keys(MANIFEST.collections); // the only table names that ever reach SQL
+const DATE_FIELDS = new Set(["touch_date", "follow_up", "next_date", "last_date", "approval_date", "ai_updated"]);
+const CHOICES = { // fixed lists used by the outreach tracker
+  interest: ["Committed", "Hot", "Warm", "Lukewarm", "No reply yet", "Passed"],
+  direction: ["out", "in", "meeting"],
+  channel: ["Email", "Call", "Meeting", "LinkedIn", "Introduction", "Event", "Site visit"]
+};
+
+// Check a request body against the manifest's field list for one collection. Returns { data } or { error }.
+export function validate(body, { requireName, server = false, collection = "investors" }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Body must be a JSON object." };
+  const fields = MANIFEST.collections[collection].fields;
   const data = {};
   for (const [key, value] of Object.entries(body)) {
-    const f = FIELDS[key];
-    if (!f) return { error: `Unknown field: ${key}` };
+    const f = fields[key];
+    if (!f || (!server && key.startsWith("ai_"))) return { error: `Unknown field: ${key}` };
     if (f.type === "string") {
       if (typeof value !== "string") return { error: `${key} must be text.` };
       const v = f.trim ? value.trim() : value;
       if (f.maxLength && v.length > f.maxLength) return { error: `${key} is too long (max ${f.maxLength}).` };
+      if (DATE_FIELDS.has(key) && !/^(\d{4}-\d{2}-\d{2})?$/.test(v)) return { error: `${key} must be a date like 2026-11-10.` };
+      if (CHOICES[key] && !CHOICES[key].includes(v)) return { error: `${key} must be one of: ${CHOICES[key].join(", ")}.` };
       data[key] = v;
-    } else if (f.type === "integer") {
-      if (!Number.isInteger(value)) return { error: `${key} must be a whole number.` };
+    } else if (f.type === "integer" || f.type === "number") {
+      const ok = f.type === "integer" ? Number.isInteger(value) : typeof value === "number" && Number.isFinite(value);
+      if (!ok) return { error: `${key} must be ${f.type === "integer" ? "a whole number" : "a number"}.` };
       if (f.minimum != null && value < f.minimum) return { error: `${key} must be at least ${f.minimum}.` };
       if (f.maximum != null && value > f.maximum) return { error: `${key} must be at most ${f.maximum}.` };
       data[key] = value;
@@ -45,8 +58,11 @@ export function validate(body, { requireName }) {
       return { error: `Unsupported field type for ${key}.` };
     }
   }
-  if (requireName && !data.name) return { error: "name is required." };
-  if ("name" in data && !data.name) return { error: "name cannot be empty." };
+  for (const [key, f] of Object.entries(fields)) {
+    if (!f.required) continue;
+    if (requireName && !data[key]) return { error: `${key} is required.` };
+    if (key in data && !data[key]) return { error: `${key} cannot be empty.` };
+  }
   if (Buffer.byteLength(JSON.stringify(data)) > MAX_RECORD_BYTES) return { error: "Record is too large." };
   return { data };
 }
@@ -64,6 +80,115 @@ function limiter({ windowMs, max }) {
   };
 }
 
+
+// ---- Automatic research -------------------------------------------------------------------
+const STALE_MS = 6 * 60 * 1000;
+const dailyLimit = () => parseInt(process.env.AI_DAILY_LIMIT, 10) || 40;
+const runsToday = async pool => (await pool.query("select count(*)::int as n from research_runs where started_at > now() - interval '24 hours'")).rows[0].n;
+const SCORE_FIELDS = CRITERIA.map(c => c[1]);
+const TEXT_FIELDS = ["hq", "strategy", "check_size", "website", "linkedin", "contact_email", "decision_text", "sources_text", "deals_text"];
+
+async function setData(pool, id, patch) {
+  const v = validate(patch, { requireName: false, server: true });
+  if (v.error) throw new Error("internal: " + v.error);
+  await pool.query("update investors set data = data || $2::jsonb, updated_at = now() where id = $1", [id, v.data]);
+}
+
+// Runs in the background after the request has been answered. Never overwrites what a person typed.
+export async function runResearchJob(pool, id, name) {
+  try {
+    const { text, urls } = await askModel(name);
+    const { data } = sanitizeResult(text, urls);
+    const { rows } = await pool.query("select data from investors where id = $1", [id]);
+    if (!rows.length) return;
+    const cur = rows[0].data;
+    const patch = { ai_status: "done", ai_updated: data.ai_updated, ai_missing: data.ai_missing };
+    let summary = data.ai_summary;
+    for (const f of TEXT_FIELDS) if (!cur[f] && data[f]) patch[f] = data[f];
+    if (SCORE_FIELDS.some(f => cur[f] > 0)) summary += "\nNote: scores were already set by a person, so the AI scores above were not applied.";
+    else for (const f of SCORE_FIELDS) patch[f] = data[f];
+    if (data.type && data.type !== cur.type) summary += `\nNote: the AI suggests the investor type may be ${data.type}.`;
+    patch.ai_summary = summary.slice(0, 2000);
+    await setData(pool, id, patch);
+  } catch (e) {
+    console.error("research failed:", e.message);
+    const msg = typeof e.status === "number" ? `The AI service returned an error (code ${e.status}).` : /^The AI /.test(e.message) ? e.message : "Research could not be completed.";
+    try { await setData(pool, id, { ai_status: "failed", ai_missing: `Research failed: ${msg} Try again later or fill the details in by hand.` }); } catch (e2) { console.error("could not record failure:", e2.message); }
+  }
+}
+
+// ---- Import from a PDF or web page ----------------------------------------------------------
+// Runs in the background. Creates one "pending" investor per firm; nothing is scored here.
+export async function runImportJob(pool, jobId, { kind, label, sourceUrl, read }) {
+  try {
+    const text = await read();
+    const existing = (await pool.query("select data->>'name' as n from investors")).rows.map(r => r.n);
+    const out = sanitizeFirms(text, existing, { label, sourceUrl, kind });
+    const db = await pool.connect();
+    const created = [];
+    try {
+      await db.query("begin");
+      for (const rec of out.records) {
+        const v = validate(rec, { requireName: true, server: true });
+        if (v.error) continue;
+        const id = newId();
+        await db.query("insert into investors (id, data) values ($1, $2)", [id, v.data]);
+        created.push({ id, name: v.data.name });
+      }
+      await db.query("commit");
+    } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
+    const result = { created, skippedDuplicates: out.skippedDuplicates, skippedIndividuals: out.skippedIndividuals, leftOver: out.leftOver };
+    await pool.query("update imports set status = 'done', result = $2 where id = $1", [jobId, result]);
+  } catch (e) {
+    console.error("import failed:", e.message);
+    const msg = typeof e.status === "number" ? `The AI service returned an error (code ${e.status}).` : /^The AI /.test(e.message) ? e.message : "The import could not be completed.";
+    await pool.query("update imports set status = 'failed', error = $2 where id = $1", [jobId, msg]).catch(e2 => console.error("could not record failure:", e2.message));
+  }
+}
+
+async function startImport(pool, res, { kind, label, sourceUrl, read }) {
+  if (!researchEnabled()) return res.status(503).json({ error: "Importing is not set up yet." });
+  if (await runsToday(pool) >= dailyLimit()) return res.status(429).json({ error: "The daily limit has been reached. Try again tomorrow." });
+  await pool.query("insert into research_runs default values");
+  const id = crypto.randomUUID();
+  await pool.query("insert into imports (id, status, kind, label) values ($1, 'running', $2, $3)", [id, kind, label]);
+  res.status(202).json({ id });
+  runImportJob(pool, id, { kind, label, sourceUrl, read }).catch(e => console.error("import job crashed:", e.message));
+}
+
+const LOGIN_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>DL3 Investor CRM: sign in</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#fff;color:#10201d;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{width:min(360px,90vw);padding:24px;border:1px solid #dee1e2;border-radius:10px;border-top:3px solid #23c6b5}
+img{width:64px;height:64px;display:block;margin:0 auto 8px}
+h1{font-size:18px;text-align:center;margin:0 0 4px;color:#1f7a6e}
+p{margin:0 0 14px;text-align:center;color:#58665f;font-size:14px}
+input{width:100%;box-sizing:border-box;font:inherit;padding:9px 10px;border:1px solid #dee1e2;border-radius:6px}
+button{width:100%;margin-top:10px;font:inherit;font-weight:600;padding:9px;border:1px solid #23c6b5;border-radius:6px;background:#23c6b5;color:#06201c;cursor:pointer}
+button:disabled{opacity:.5}
+#err{margin-top:10px;min-height:20px;color:#9b2226;font-size:14px}
+</style></head><body><main>
+<img src="/dl3-logo.png" alt="DL3">
+<h1>DL3 Investor CRM</h1><p>Enter the team password to continue.</p>
+<form id="f"><input id="pw" type="password" autocomplete="current-password" placeholder="Team password" autofocus required><button id="go" type="submit">Sign in</button></form>
+<div id="err" role="alert"></div>
+<script>
+document.getElementById("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const go = document.getElementById("go"), err = document.getElementById("err");
+  go.disabled = true; err.textContent = "";
+  try {
+    const r = await fetch("/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: document.getElementById("pw").value }) });
+    if (r.ok) { location.assign("/"); return; }
+    const j = await r.json().catch(() => ({}));
+    err.textContent = r.status === 429 ? "Too many tries. Please wait a few minutes and try again." : (j.error || "Could not sign in.");
+  } catch (x) { err.textContent = "Could not reach the server. Try again."; }
+  go.disabled = false;
+});
+</script></main></body></html>`;
+
 const row = r => ({ id: r.id, data: r.data, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString() });
 
 export function createApp(pool) {
@@ -76,73 +201,200 @@ export function createApp(pool) {
   });
   app.use(express.json({ limit: "32kb" }));
 
+  // ---- Team password -------------------------------------------------------------------------
+  // Set TEAM_PASSWORD in Render to turn it on. Without it the tool is open to anyone with the address.
+  // A session is a signed, expiring cookie. Changing the password signs everyone out.
+  const teamPassword = process.env.TEAM_PASSWORD || "";
+  const authOn = teamPassword.length > 0;
+  const sessionKey = Buffer.from(teamPassword);
+  const SESSION_MS = 30 * 864e5;
+  const sign = exp => crypto.createHmac("sha256", sessionKey).update("dl3-session|" + exp).digest("base64url");
+  const makeToken = () => { const exp = Date.now() + SESSION_MS; return `${exp}.${sign(exp)}`; };
+  const sha = v => crypto.createHash("sha256").update(String(v)).digest();
+  const validToken = t => {
+    if (typeof t !== "string") return false;
+    const [exp, sig] = t.split(".");
+    if (!/^\d{10,16}$/.test(exp || "") || !sig || +exp < Date.now()) return false;
+    const good = sign(exp);
+    return sig.length === good.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good));
+  };
+  const cookieOf = req => { const c = (req.headers.cookie || "").split(";").map(x => x.trim()).find(x => x.startsWith("dl3_session=")); return c ? c.slice(12) : ""; };
+  const signedIn = req => !authOn || validToken(cookieOf(req));
+
+  // refuse writes that come from another website
+  app.use((req, res, next) => {
+    if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
+      const o = req.get("origin");
+      if (o) { let host = ""; try { host = new URL(o).host; } catch { /* refuse below */ } if (host !== req.get("host")) return res.status(403).json({ error: "Request from another website refused." }); }
+    }
+    next();
+  });
+  const OPEN_PATHS = new Set(["/healthz", "/login", "/logout", "/favicon.ico", "/dl3-logo.png", "/tracker.js", "/groups.js", "/api/session"]);
+  app.use((req, res, next) => {
+    if (!authOn || OPEN_PATHS.has(req.path) || signedIn(req)) return next();
+    if (req.path.startsWith("/api")) return res.status(401).json({ error: "Please sign in." });
+    return res.redirect(302, "/login");
+  });
+  const loginLimit = limiter({ windowMs: 15 * 60 * 1000, max: 10 });
+  app.get("/login", (req, res) => (!authOn || signedIn(req)) ? res.redirect(302, "/") : res.type("html").send(LOGIN_HTML));
+  app.post("/login", loginLimit, (req, res) => {
+    if (!authOn) return res.json({ ok: true });
+    const pw = req.body && typeof req.body.password === "string" ? req.body.password : "";
+    if (!pw || !crypto.timingSafeEqual(sha(pw), sha(teamPassword))) return res.status(401).json({ error: "That password is not right." });
+    res.cookie("dl3_session", makeToken(), { httpOnly: true, sameSite: "lax", secure: req.secure, maxAge: SESSION_MS, path: "/" });
+    res.json({ ok: true });
+  });
+  app.post("/logout", (req, res) => { res.clearCookie("dl3_session", { path: "/" }); res.json({ ok: true }); });
+  app.get("/api/session", (req, res) => res.json({ required: authOn, signedIn: signedIn(req) }));
+
   // The CRM page. It is the same file used on here.now, with the API address added.
   const pageHtml = fs.readFileSync(path.join(SITE_DIR, "index.html"), "utf8")
     .replace("<script>", '<script>window.INVESTORS_API="/api/investors";</script>\n<script>');
   app.get("/", (req, res) => res.type("html").send(pageHtml));
+  for (const file of ["tracker.js", "groups.js"]) { // the page's script files (fixed list, nothing from the request)
+    const body = fs.readFileSync(path.join(SITE_DIR, file), "utf8");
+    app.get("/" + file, (req, res) => res.type("application/javascript").set("Cache-Control", "no-cache").send(body));
+  }
+  const logoPng = fs.readFileSync(path.join(SITE_DIR, "dl3-logo.png"));
+  app.get("/dl3-logo.png", (req, res) => res.type("image/png").set("Cache-Control", "no-cache").send(logoPng));
   app.get("/favicon.ico", (req, res) => res.status(204).end());
   app.get("/healthz", async (req, res) => {
     try { await pool.query("select 1"); res.type("text").send("ok"); } catch { res.status(503).type("text").send("database unavailable"); }
   });
 
   const reads = limiter({ windowMs: 3600_000, max: 1200 });
-  const writes = limiter({ windowMs: 3600_000, max: 300 });
 
-  app.get("/api/investors", reads, async (req, res) => {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
-    let after = null;
-    if (req.query.cursor) {
-      try { const [t, id] = Buffer.from(String(req.query.cursor), "base64url").toString().split("|"); after = { t, id }; if (!t || !ID_PATTERN.test(id)) throw 0; }
-      catch { return res.status(400).json({ error: "Bad cursor." }); }
+  const researchLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.RESEARCH_HOURLY_LIMIT, 10) || 10 });
+  app.get("/api/research/status", reads, async (req, res) => {
+    res.json({ enabled: researchEnabled(), remainingToday: Math.max(0, dailyLimit() - await runsToday(pool)) });
+  });
+  app.post("/api/investors/:id/research", researchLimit, async (req, res) => {
+    if (!researchEnabled()) return res.status(503).json({ error: "AI research is not set up yet." });
+    if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+    const { rows } = await pool.query("select data from investors where id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Not found." });
+    const cur = rows[0].data;
+    if (cur.review_status !== "pending") return res.status(409).json({ error: "Only investors waiting for review can be researched. Confirmed records are not changed by the AI." });
+    if (cur.ai_status === "running" && Date.now() - Date.parse(cur.ai_started || 0) < STALE_MS) return res.status(409).json({ error: "Research is already running for this investor." });
+    if (await runsToday(pool) >= dailyLimit()) return res.status(429).json({ error: "The daily research limit has been reached. Try again tomorrow." });
+    await pool.query("insert into research_runs default values");
+    await setData(pool, req.params.id, { ai_status: "running", ai_started: new Date().toISOString() });
+    res.status(202).json({ status: "running" });
+    runResearchJob(pool, req.params.id, String(cur.name || "")).catch(e => console.error("research job crashed:", e.message));
+  });
+
+
+  const importLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.IMPORT_HOURLY_LIMIT, 10) || 6 });
+  app.post("/api/import/pdf", importLimit, express.raw({ type: "application/pdf", limit: MAX_PDF_BYTES }), async (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length < 8 || buf.subarray(0, 5).toString("latin1") !== "%PDF-") return res.status(400).json({ error: "Please send a PDF file." });
+    let name = "document.pdf";
+    try { name = clip(decodeURIComponent(String(req.get("x-filename") || "")).split(/[\\/]/).pop(), 80) || name; } catch { /* keep default */ }
+    await startImport(pool, res, { kind: "PDF", label: name, sourceUrl: "", read: () => askPdf(buf) });
+  });
+  app.post("/api/import/website", importLimit, async (req, res) => {
+    const url = checkWebsiteUrl(req.body && req.body.url);
+    if (!url) return res.status(400).json({ error: "Please give a full web address starting with https://." });
+    await startImport(pool, res, { kind: "website", label: clip(url, 80), sourceUrl: url, read: () => askWebsite(url) });
+  });
+  app.get("/api/import/:id", reads, async (req, res) => {
+    if (!/^[0-9a-f-]{36}$/.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+    const { rows } = await pool.query("select status, kind, label, result, error from imports where id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Not found." });
+    res.json(rows[0]);
+  });
+
+  // One set of routes per collection in the manifest (investors, outreach, projects).
+  // The table name comes from that fixed list, never from the request.
+  for (const col of COLLECTIONS) {
+    const writeMax = col === "investors" ? 300 : parseInt((/^(\d+)\/hour\/ip$/.exec(MANIFEST.collections[col].rateLimit || "") || [])[1], 10) || 300;
+    const colWrites = limiter({ windowMs: 3600_000, max: writeMax });
+
+    app.get(`/api/${col}`, reads, async (req, res) => {
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+      let after = null;
+      if (req.query.cursor) {
+        try { const [t, id] = Buffer.from(String(req.query.cursor), "base64url").toString().split("|"); after = { t, id }; if (!t || !ID_PATTERN.test(id)) throw 0; }
+        catch { return res.status(400).json({ error: "Bad cursor." }); }
+      }
+      const params = after ? [after.t, after.id, limit + 1] : [limit + 1];
+      const where = after ? "where (created_at, id) > ($1::timestamptz, $2)" : "";
+      const { rows } = await pool.query(`select id, data, created_at, updated_at, created_at::text as created_text from ${col} ${where} order by created_at, id limit $${params.length}`, params);
+      const page = rows.slice(0, limit);
+      const last = page[page.length - 1];
+      const nextCursor = rows.length > limit ? Buffer.from(`${last.created_text}|${last.id}`).toString("base64url") : null;
+      res.json({ records: page.map(row), nextCursor });
+    });
+
+    app.get(`/api/${col}/:id`, reads, async (req, res) => {
+      if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+      const { rows } = await pool.query(`select id, data, created_at, updated_at from ${col} where id = $1`, [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "Not found." });
+      res.json({ record: row(rows[0]) });
+    });
+
+    app.post(`/api/${col}`, colWrites, async (req, res) => {
+      const v = validate(req.body, { requireName: true, collection: col });
+      if (v.error) return res.status(400).json({ error: v.error });
+      const { rows } = await pool.query(`insert into ${col} (id, data) values ($1, $2) returning id, data, created_at, updated_at`, [newId(), v.data]);
+      res.status(201).json({ record: row(rows[0]) });
+    });
+
+    if (col === "investors") {
+      // Permanent removal, for an investor who asked to be removed. The request must say it is confirmed, and
+      // removals are limited to 10 an hour from one place. The investor's outreach entries go too.
+      // (With a team password on, only signed-in people can reach this at all.)
+      const removeLimit = limiter({ windowMs: 3600_000, max: 10 });
+      app.delete("/api/investors/:id", removeLimit, async (req, res) => {
+        if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+        if (!req.body || req.body.confirmed !== true) return res.status(400).json({ error: "Confirm the removal first." });
+        const db = await pool.connect();
+        try {
+          await db.query("begin");
+          const gone = await db.query("delete from investors where id = $1", [req.params.id]);
+          if (!gone.rowCount) { await db.query("rollback"); return res.status(404).json({ error: "Not found." }); }
+          const out = await db.query("delete from outreach where data->>'investor_rid' = $1", [req.params.id]);
+          await db.query("commit");
+          const by = typeof req.body.by === "string" ? req.body.by.replace(/[^\p{L}\p{N} .'-]/gu, "").slice(0, 60) : "";
+          console.log("investor removed:", req.params.id, "outreach entries removed:", out.rowCount, by ? "by " + by : "");
+          res.json({ deleted: true, outreachRemoved: out.rowCount });
+        } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
+      });
     }
-    const params = after ? [after.t, after.id, limit + 1] : [limit + 1];
-    const where = after ? "where (created_at, id) > ($1::timestamptz, $2)" : "";
-    const { rows } = await pool.query(`select id, data, created_at, updated_at, created_at::text as created_text from investors ${where} order by created_at, id limit $${params.length}`, params);
-    const page = rows.slice(0, limit);
-    const last = page[page.length - 1];
-    const nextCursor = rows.length > limit ? Buffer.from(`${last.created_text}|${last.id}`).toString("base64url") : null;
-    res.json({ records: page.map(row), nextCursor });
-  });
 
-  app.get("/api/investors/:id", reads, async (req, res) => {
-    if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
-    const { rows } = await pool.query("select id, data, created_at, updated_at from investors where id = $1", [req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: "Not found." });
-    res.json({ record: row(rows[0]) });
-  });
-
-  app.post("/api/investors", writes, async (req, res) => {
-    const v = validate(req.body, { requireName: true });
-    if (v.error) return res.status(400).json({ error: v.error });
-    const { rows } = await pool.query("insert into investors (id, data) values ($1, $2) returning id, data, created_at, updated_at", [newId(), v.data]);
-    res.status(201).json({ record: row(rows[0]) });
-  });
-
-  app.patch("/api/investors/:id", writes, async (req, res) => {
-    if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
-    const v = validate(req.body, { requireName: false });
-    if (v.error) return res.status(400).json({ error: v.error });
-    const { rows } = await pool.query("update investors set data = data || $2::jsonb, updated_at = now() where id = $1 returning id, data, created_at, updated_at", [req.params.id, v.data]);
-    if (!rows.length) return res.status(404).json({ error: "Not found." });
-    res.json({ record: row(rows[0]) });
-  });
+    app.patch(`/api/${col}/:id`, colWrites, async (req, res) => {
+      if (!ID_PATTERN.test(req.params.id)) return res.status(404).json({ error: "Not found." });
+      const v = validate(req.body, { requireName: false, collection: col });
+      if (v.error) return res.status(400).json({ error: v.error });
+      const { rows } = await pool.query(`update ${col} set data = data || $2::jsonb, updated_at = now() where id = $1 returning id, data, created_at, updated_at`, [req.params.id, v.data]);
+      if (!rows.length) return res.status(404).json({ error: "Not found." });
+      res.json({ record: row(rows[0]) });
+    });
+  }
 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found." }));
   app.use((req, res) => res.status(404).type("text").send("Not found"));
   app.use((err, req, res, next) => { // never echo internal details to the browser
     console.error("request failed:", err.message);
     if (res.headersSent) return next(err);
+    if (err.type === "entity.too.large") return res.status(413).json({ error: "That file is too large (10 MB limit)." });
     res.status(err.status === 400 ? 400 : 500).json({ error: err.status === 400 ? "Bad request." : "Something went wrong on the server." });
   });
   return app;
 }
 
 export async function migrate(pool) {
-  await pool.query(`create table if not exists investors (
-    id text primary key,
-    data jsonb not null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  )`);
-  await pool.query("create index if not exists investors_created_idx on investors (created_at, id)");
+  for (const col of COLLECTIONS) {
+    await pool.query(`create table if not exists ${col} (
+      id text primary key,
+      data jsonb not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )`);
+    await pool.query(`create index if not exists ${col}_created_idx on ${col} (created_at, id)`);
+  }
+  await pool.query(`create table if not exists imports (
+    id text primary key, status text not null, kind text not null, label text not null,
+    result jsonb, error text, created_at timestamptz not null default now())`);
+  await pool.query("create table if not exists research_runs (id bigserial primary key, started_at timestamptz not null default now())");
 }
