@@ -97,7 +97,9 @@ async function setData(pool, id, patch) {
 export async function runResearchJob(pool, id, name) {
   try {
     const { text, urls } = await askModel(name);
+    console.log("research answered:", JSON.stringify({ pages: urls.size, chars: text.length })); // no names or keys in the log
     const { data } = sanitizeResult(text, urls);
+    if (urls.size === 0) data.ai_missing = ("The AI service returned no web pages, so nothing could be checked or saved. Its web search may be switched off for this key.\n" + data.ai_missing).slice(0, 2000);
     const { rows } = await pool.query("select data from investors where id = $1", [id]);
     if (!rows.length) return;
     const cur = rows[0].data;
