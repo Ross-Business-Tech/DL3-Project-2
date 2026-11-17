@@ -5,8 +5,7 @@
   conversation goes quiet.
 
   Saved in the shared database (collections: outreach = one record per touch, projects = DL3 projects
-  that need investors). On a here.now test link there is no shared data, so the page runs in demo mode
-  with made-up sample data and nothing is saved.
+  that need investors).
   Written by a teammate; ported here to use the Render database.
 
   This file is loaded before the main script in index.html and uses its helpers
@@ -65,7 +64,6 @@ async function loadAll(col) {
   return all;
 }
 async function loadTracker() {
-  if (S.demo) { demoTracker(); return; }
   try {
     const [o, p] = await Promise.all([loadAll(outCol()), loadAll(projCol())]);
     T.outreach = o.map(r => ({ rid: r.id, ...r.data }));
@@ -76,7 +74,6 @@ async function loadTracker() {
   }
 }
 async function saveRec(col, rec, fields) {
-  if (S.demo) return;
   if (rec.rid) return api("PATCH", col + "/" + rec.rid, fields);
   const r = await api("POST", col, fields); rec.rid = r.record.id;
 }
@@ -89,36 +86,8 @@ function outFields(o) {
   };
 }
 async function trySave(fn, okText) {
-  try { await fn(); return okText + (S.demo ? " (Demo mode: not saved.)" : ""); }
+  try { await fn(); return okText; }
   catch (e) { return "Could not save to the shared list (" + e.message + "). The change is on screen only."; }
-}
-
-/* ---------- Demo data (made up, for test links only) ---------- */
-function demoTracker() {
-  if (T.demoLoaded) return;
-  T.demoLoaded = true;
-  const t = todayStr();
-  T.projects = [
-    { name: "Sample Project A: mixed-income apartments", target_m: 12, summary: "Made-up example project", active: true },
-    { name: "Sample Project B: affordable senior housing", target_m: 8, summary: "Made-up example project", active: true }
-  ];
-  const A = T.projects[0].name, B = T.projects[1].name;
-  const inv = n => INV[n] || INV[0];
-  const mk = (n, project, d, channel, direction, interest, amount, summary, next, fu, done) => ({
-    investor_rid: inv(n).rid || inv(n).id, investor_name: inv(n).name, project, touch_date: addDays(t, d), channel, direction,
-    logged_by: "DL3 team (sample)", interest, amount_m: amount, summary, next_step: next, follow_up: fu === null ? "" : addDays(t, fu), follow_up_done: !!done
-  });
-  T.outreach = [
-    mk(9, A, -12, "Email", "out", "No reply yet", 0, "Sent the one-page teaser.", "Follow up", -5, true),
-    mk(9, A, -5, "Email", "in", "Hot", 3, "Replied asking for the financial model and a call.", "Send model, book call", -1),
-    mk(10, A, -9, "Introduction", "out", "Warm", 2, "Warm intro through a lender contact.", "Share pitch deck", 0),
-    mk(18, A, -20, "Meeting", "meeting", "Committed", 4, "Verbal commitment at the site visit.", "Send subscription documents", 3),
-    mk(0, B, -15, "Email", "out", "No reply yet", 0, "First outreach email.", "Try a call", -8, true),
-    mk(0, B, -8, "Call", "out", "No reply yet", 0, "Left a voicemail.", "Try LinkedIn", -1),
-    mk(14, B, -6, "Call", "in", "Lukewarm", 0, "Likes Chicago but the check is small for them.", "Send update when Phase 2 opens", 4),
-    mk(19, B, -3, "Email", "out", "Warm", 1.5, "Shared the senior-housing summary; asked good questions.", "Answer questions on operator", 2),
-    mk(6, A, -30, "Email", "in", "Passed", 0, "Not investing in multifamily this year.", "", null)
-  ];
 }
 
 /* ---------- Derived views ---------- */
@@ -201,7 +170,7 @@ async function logOutreach() {
   S.msg = await trySave(async () => {
     await saveRec(outCol(), o, outFields(o));
     for (const x of older) { x.follow_up_done = true; await saveRec(outCol(), x, { follow_up_done: true }); }
-    if (!S.demo) await persist(i);
+    await persist(i);
   }, "Logged outreach with " + i.name + (o.follow_up ? ". Follow-up set for " + niceDate(o.follow_up) + "." : "."));
   older.forEach(x => x.follow_up_done = true);
   render();

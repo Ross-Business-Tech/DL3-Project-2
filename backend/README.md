@@ -70,8 +70,7 @@ Replies from investors can always be logged.
 
 The data is in two more tables, `outreach` and `projects`, served at `/api/outreach` and `/api/projects` with the same
 checks as the investor list: unknown fields are refused, dates must look like `2026-11-10`, and interest, channel and
-direction must come from fixed lists. On a here.now test link there is no shared data, so the tab shows made-up sample
-projects and saves nothing.
+direction must come from fixed lists.
 
 ## Team password
 

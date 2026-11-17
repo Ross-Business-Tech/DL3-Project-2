@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <meta name="color-scheme" content="light">
-<title>DL3 Investor CRM - Pilot Example</title>
+<title>DL3 Investor CRM</title>
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#ffffff;--surface:#ffffff;--card-bg:rgba(255,255,255,.62);--mark:.07;--text:#10201d;--muted:#58665f;--border:#dee1e2;--accent:#1f7a6e;--on-accent:#ffffff;--fill:#23c6b5;--on-fill:#06201c;--brand:#ffffff;--brand-text:#10201d;--brand-line:#23c6b5;--logo-teal:#2b8f83;--good:#1d6b45;--warn:#8a5a00;--bad:#9b2226;--chip:#f1f5f4;color-scheme:light}
 body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
@@ -83,8 +83,8 @@ details.card>summary{cursor:pointer}
 <body>
 <header>
   <div>
-    <h1>DL3 Investor CRM: pilot example</h1>
-    <div class="disclaimer">All investors come from public research. Individuals are not named. Changes are saved to the shared list.</div>
+    <h1>DL3 Investor CRM</h1>
+    <div class="disclaimer">Investors come from public research. Changes are saved to the shared list.</div>
   </div>
   <div class="row">
     <label>Your name <input id="whoIn" placeholder="Shown on changes you make" maxlength="60" oninput="setWho(this.value)"></label>
@@ -131,34 +131,6 @@ document.getElementById("whoIn").value = S.who;
 function setWho(v) { S.who = v.trim().slice(0, 60); try { localStorage.setItem("dl3_who", S.who); } catch (e) { /* no storage: fine */ } }
 const who = () => S.who || "Team member";
 
-/* ---------- Sample data (hypothetical) ---------- */
-const SEED=[
- {id:"INV-001",name:"Ante, Inc. (Antetokounmpo family office)",type:"Family office",hq:"Not confirmed (Chicago activity)",strategy:"Multifamily acquisitions",check:"Not disclosed; deals about $21M each",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:4,capital:4},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Family office founders (per firm profile)",src:"R1-1"}],deals:["Harmony Apartments, 4513 N Clark St, about $21M (Jan 2026)","Portrait building, 948 W Sunnyside Ave, 59 units, $21M (Apr 2026)"],sources:[{id:"R1-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/01/26/giannis-antetokounmpo-keeps-buying-apartments",accessed:"n/a (research CSV)",published:"2026-01-26"},{id:"R1-2",label:"Research source 2",url:"https://therealdeal.com/chicago/2026/04/01/giannis-antetokounmpo-again-sets-sights-on-uptown-chicago",accessed:"n/a (research CSV)",published:"2026-04-01"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Check size and HQ not confirmed.",acts:[],history:[]},
- {id:"INV-002",name:"Lagflin SCA (Campari family office)",type:"Family office",hq:"Luxembourg",strategy:"Value-add; office-to-residential with public subsidy",check:"Not disclosed",scores:{chicago:4,mf:3,check:4,strategy:4,evidence:3,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Director, Lagflin SCA",src:"R2-1"}],deals:["Over $100M in Chicago real estate since 2021 across retail, office, multifamily","79 W Monroe office-to-residential (construction start Mar 2025)"],sources:[{id:"R2-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/03/27/campari-starts-construction-on-chicago-office-to-residential",accessed:"n/a (research CSV)",published:"2025-03-27"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one dated source; no second source found.",acts:[],history:[]},
- {id:"INV-003",name:"Beitel Group (NY family office)",type:"Family office",hq:"New York, NY",strategy:"Value-add multifamily (per firm description)",check:"About $110M shared with Scharf Group",scores:{chicago:3,mf:5,check:3,strategy:4,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Co-bought 720 units in Chicago MSA for $110M with The Scharf Group"],sources:[{id:"R3-1",label:"Research source 1",url:"https://irei.com/news/n-y-based-family-office-buys-720-units-chicago-110m/",accessed:"n/a (research CSV)",published:"2021-03-04"},{id:"R3-2",label:"Research source 2",url:"https://www.citybiz.co/article/21732/beitel-group-and-the-scharf-group-both-ny-based-single-family-offices-have-acquired-720-units-in-chicago-msa-for-a-purchase-price-of-110-million/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Deal is from 2021; check for newer Chicago activity.",acts:[],history:[]},
- {id:"INV-004",name:"The Scharf Group (NY family office)",type:"Family office",hq:"New York, NY",strategy:"Owner, developer, and operator of multifamily, commercial, and senior housing",check:"About $110M shared with Beitel Group",scores:{chicago:3,mf:5,check:3,strategy:4,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Co-bought 720 units in Chicago MSA for $110M with Beitel Group"],sources:[{id:"R4-1",label:"Research source 1",url:"https://irei.com/news/n-y-based-family-office-buys-720-units-chicago-110m/",accessed:"n/a (research CSV)",published:"2021-03-04"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Same deal as Beitel Group; deal is from 2021.",acts:[],history:[]},
- {id:"INV-005",name:"Elie Rieder family office (NY)",type:"Family office",hq:"Manhattan and Suffern, NY",strategy:"Chicago MSA targeting; strategy not stated",check:"Not disclosed",scores:{chicago:3,mf:4,check:1,strategy:2,evidence:1,capital:2},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Head of family office",src:"R5-1"},{name:"Contact to confirm",title:"Head of acquisitions",src:"R5-1"}],deals:["Has targeted Chicago MSA for over 1.5 years","bought an off-market deal (details not shown)"],sources:[{id:"R5-1",label:"Research source 1",url:"https://www.bisnow.com/news/chicago/commercial-real-estate/new-york-takes-over-chicago-17790",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Article date, deal size, and unit count not shown.",acts:[],history:[]},
- {id:"INV-006",name:"The Chicago Family Office",type:"Family office",hq:"Chicago, IL",strategy:"Diversified",check:"Not disclosed",scores:{chicago:4,mf:1,check:1,strategy:2,evidence:0,capital:2},selfReported:false,decisionMakers:[],deals:["Chicago-based","mandates real estate, technology, healthcare, environmental"],sources:[{id:"R6-1",label:"Research source 1",url:"https://www.premieralts.com/investors/the-chicago-family-office/deals",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Deal list undated; multifamily activity not confirmed.",acts:[],history:[]},
- {id:"INV-007",name:"Berger Realty Group (family office)",type:"Family office",hq:"Chicago, IL",strategy:"Long hold, then sale",check:"About $43M",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Leads Berger Realty Group",src:"R7-1"}],deals:["Sold 247-unit Gold Coast tower for $43M (Jul 2025)"],sources:[{id:"R7-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/07/18/gold-coast-chicago-apartments-sell-for-174000-per-unit",accessed:"n/a (research CSV)",published:"2025-07-18"},{id:"R7-2",label:"Research source 2",url:"https://www.costar.com/article/432097630/247-unit-apartment-tower-in-chicagos-gold-coast-sells-for-43-million",accessed:"n/a (research CSV)",published:"2025-07-16"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Seller, not buyer; where sale proceeds went is unknown.",acts:[],history:[]},
- {id:"INV-008",name:"Pontegadea Inversiones (Amancio Ortega family office)",type:"Family office",hq:"Spain",strategy:"Multifamily and office",check:"$232M and $550M deals",scores:{chicago:4,mf:3,check:3,strategy:2,evidence:2,capital:5},selfReported:false,decisionMakers:[],deals:["Bought Chicago luxury apartment tower for $232M (Aug 2023)","bought 51-story Chicago office tower for $550M (Oct 2026)"],sources:[{id:"R8-1",label:"Research source 1",url:"https://www.craincurrency.com/node/1009381",accessed:"n/a (research CSV)",published:"2023-08-22"},{id:"R8-2",label:"Research source 2",url:"https://techstory.in/zara-billionaire-amancio-ortega-buys-chicago-office-tower-for-550-mn/",accessed:"n/a (research CSV)",published:"2026-10-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Office focus; multifamily appetite unclear.",acts:[],history:[]},
- {id:"INV-009",name:"Intercontinental Real Estate with Magellan Development Group",type:"Institutional",hq:"Not confirmed (Chicago activity)",strategy:"Residential acquisition",check:"About $126M (about $380K per unit)",scores:{chicago:4,mf:5,check:3,strategy:4,evidence:4,capital:4},selfReported:false,decisionMakers:[],deals:["Bought 73 E Lake St, 332-unit Loop tower, $126.1M (Jan/Feb 2026)"],sources:[{id:"R9-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/02/10/intercontinental-and-magellan-buy-chicago-loop-apartments",accessed:"n/a (research CSV)",published:"2026-02-10"},{id:"R9-2",label:"Research source 2",url:"https://www.costar.com/article/292648585/sale-of-42-story-apartment-tower-in-downtown-chicago-follows-big-year-of-deals",accessed:"n/a (research CSV)",published:"2026-02-10"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Both sources cover the same deal; contacts not found.",acts:[],history:[]},
- {id:"INV-010",name:"FPA Multifamily",type:"Institutional",hq:"California (per CoStar)",strategy:"Value-add, suburban and urban",check:"$51M to $89M per deal",scores:{chicago:5,mf:5,check:4,strategy:4,evidence:5,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Title to confirm",src:"R10-1"}],deals:["Streeterville tower, $89M (Dec 2025)","378-unit Wheeling complex, $51M (Feb 2026)"],sources:[{id:"R10-1",label:"Research source 1",url:"https://www.costar.com/article/2055333982/following-largest-chicago-multifamily-purchase-since-2023-california-investor-adds-nearby-tower",accessed:"n/a (research CSV)",published:"2025-12-19"},{id:"R10-2",label:"Research source 2",url:"https://www.costar.com/article/550295300/fpa-multifamily-acquires-chicago-area-apartment-complex-for-51-million",accessed:"n/a (research CSV)",published:"2026-02-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: HQ not Chicago; confirm decision-maker title.",acts:[],history:[]},
- {id:"INV-011",name:"LaTerra Capital Management and Respark Residential",type:"Institutional",hq:"Marina del Rey, CA",strategy:"Acquire and scale multifamily; leveraged with assumable Fannie Mae debt",check:"About $455M for portfolio",scores:{chicago:5,mf:5,check:4,strategy:4,evidence:5,capital:5},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"CEO, LaTerra",src:"R11-1"},{name:"Contact to confirm",title:"CIO, Respark",src:"R11-1"}],deals:["Seven-property, 1,495-unit suburban Chicago portfolio from Aimco for $455M"],sources:[{id:"R11-1",label:"Research source 1",url:"https://laterradev.com/wp-content/uploads/2025/12/PRLog-LaTerra-and-Respark-Under-Contract-with-AIMCO-to-Acquire-a-455M-7-Property-Chicago-Multifamily-Portfolio-12.16.2025.pdf",accessed:"n/a (research CSV)",published:"2025-12-16"},{id:"R11-2",label:"Research source 2",url:"https://rejournals.com/berkadia-advises-aimco-on-455-million-chicago-multifamily-portfolio-sale/",accessed:"n/a (research CSV)",published:"2026-03-31"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Closing not confirmed in sources.",acts:[],history:[]},
- {id:"INV-012",name:"Laramar Group",type:"Institutional",hq:"Chicago (per Bisnow)",strategy:"Residential acquisition",check:"About $166M",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:2,capital:4},selfReported:false,decisionMakers:[],deals:["Eleven Thirty, 656 units, 1130 S Michigan Ave, $165.7M","second Chicago high-rise deal"],sources:[{id:"R12-1",label:"Research source 1",url:"https://www.multihousingnews.com/laramar-group-buys-chicago-high-rise-for-166m/",accessed:"n/a (research CSV)",published:null},{id:"R12-2",label:"Research source 2",url:"https://www.bisnow.com/news/chicago/multifamily/laramar-group-acquires-43-story-south-loop-apartment-building",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Exact dates not shown in sources found.",acts:[],history:[]},
- {id:"INV-013",name:"Concord Capital",type:"Institutional",hq:"Not confirmed",strategy:"Value-add; plans to add units",check:"Not disclosed",scores:{chicago:5,mf:5,check:2,strategy:4,evidence:3,capital:3},selfReported:false,decisionMakers:[],deals:["182 apartments on N Elaine Pl near Wrigley Field (Aug 2026)"],sources:[{id:"R13-1",label:"Research source 1",url:"https://www.costar.com/article/210477456/chicago-firm-buys-apartment-complex-near-wrigley-field",accessed:"n/a (research CSV)",published:"2026-08-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Price not disclosed; only one source.",acts:[],history:[]},
- {id:"INV-014",name:"Equus Capital Partners",type:"Institutional",hq:"Not confirmed (Chicago suburbs)",strategy:"Value-add; capital improvement program",check:"Not disclosed",scores:{chicago:4,mf:5,check:2,strategy:4,evidence:2,capital:3},selfReported:false,decisionMakers:[],deals:["226-unit Ashford at Geneva, IL (2026)"],sources:[{id:"R14-1",label:"Research source 1",url:"https://www.multihousingnews.com/equus-capital-acquires-chicagoland-multifamily-asset/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Exact date not shown; price not disclosed.",acts:[],history:[]},
- {id:"INV-015",name:"Eastham Capital (with Bender Cos.)",type:"Institutional",hq:"Not confirmed (Chicago suburbs)",strategy:"Value-add private equity (Fund VII)",check:"About $24M per deal",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:5,capital:4},selfReported:false,decisionMakers:[],deals:["Flats at Gladstone, 168 units, $24.1M (Mar 2026)","Park Towers, Richton Park, 270 units (Apr 2026)"],sources:[{id:"R15-1",label:"Research source 1",url:"https://www.costar.com/article/1299126870/partners-add-to-multifamily-purchasing-streak-in-chicago-suburbs",accessed:"n/a (research CSV)",published:"2026-03-27"},{id:"R15-2",label:"Research source 2",url:"https://www.costar.com/article/997957403/active-investors-in-chicago-area-apartments-gobble-up-another-270-units",accessed:"n/a (research CSV)",published:"2026-04-01"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Bender Cos. is a co-investor; contacts not found.",acts:[],history:[]},
- {id:"INV-016",name:"Standard Real Estate Investments",type:"Institutional",hq:"Midwest (not confirmed)",strategy:"Value-add suburban multifamily",check:"About $61M",scores:{chicago:4,mf:5,check:2,strategy:4,evidence:1,capital:3},selfReported:false,decisionMakers:[],deals:["Suburban Chicago apartment community, $61M"],sources:[{id:"R16-1",label:"Research source 1",url:"https://www.pulse.bot/real-estate/news/standard-real-estate-investments-acquires-suburban-apartment-community-for-61m-69d90220-1da4-4ade-b49d-778c0626e759/",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Source is an aggregator; verify on a primary site.",acts:[],history:[]},
- {id:"INV-017",name:"R.I.G. Capital",type:"Institutional",hq:"Chicago (per The Real Deal)",strategy:"Not stated",check:"About $167M",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[],deals:["Pavilion Apartments, 1,115 units, O'Hare area, $167M (May 2026)"],sources:[{id:"R17-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2026/05/13/rig-capital-snags-2026-record-deal-for-ohare-area/",accessed:"n/a (research CSV)",published:"2026-05-13"},{id:"R17-2",label:"Research source 2",url:"https://www.costar.com/article/179215488",accessed:"n/a (research CSV)",published:"2026-05-13"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Both sources cover the same deal; contacts not found.",acts:[],history:[]},
- {id:"INV-018",name:"Waterton",type:"Institutional",hq:"Chicago (per CoStar)",strategy:"Not stated",check:"About $85M",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[],deals:["Flair Tower, River North, $85M (Mar 2026)"],sources:[{id:"R18-1",label:"Research source 1",url:"https://www.costar.com/article/927035332/waterton-pays-85-million-for-apartment-building-in-chicagos-river-north",accessed:"n/a (research CSV)",published:"2026-03-11"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one source; strategy not stated.",acts:[],history:[]},
- {id:"INV-019",name:"Cedar Street",type:"Institutional",hq:"Chicago (per CoStar)",strategy:"Long-term multifamily hold",check:"About $66M",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:4,capital:4},selfReported:false,decisionMakers:[],deals:["Avra West Loop, 198 units, $66M (Mar 2026)","partnered with Kayne Anderson on The Millie (2025)"],sources:[{id:"R19-1",label:"Research source 1",url:"https://www.costar.com/article/212329231/in-long-term-bet-chicago-investor-buys-third-multifamily-property-in-city-in-less-than-a-year",accessed:"n/a (research CSV)",published:"2026-03-05"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Only one source; contacts not found.",acts:[],history:[]},
- {id:"INV-020",name:"RPM Living",type:"Institutional",hq:"Texas (per CoStar)",strategy:"Acquisition spree (strategy not stated)",check:"About $99M to $125M per deal",scores:{chicago:5,mf:5,check:4,strategy:3,evidence:5,capital:5},selfReported:false,decisionMakers:[],deals:["SoNo East, 324 units, about $125M (Jul 2026)","Everly at Yorktown, 295 units, $99M (Aug 2026)","166 N Aberdeen, 223 units, $99M (Sep 2026)"],sources:[{id:"R20-1",label:"Research source 1",url:"https://www.costar.com/article/273879300/texas-investor-makes-third-recent-chicago-area-multifamily-purchase",accessed:"n/a (research CSV)",published:"2026-07-06"},{id:"R20-2",label:"Research source 2",url:"https://www.costar.com/article/1369758947/texas-firm-buys-fourth-chicago-area-multifamily-property-since-march",accessed:"n/a (research CSV)",published:"2026-08-24"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: HQ not confirmed in detail; contacts not found.",acts:[],history:[]},
- {id:"INV-021",name:"Highland Partners",type:"Institutional",hq:"Utah (per CoStar)",strategy:"Not stated",check:"About $119M",scores:{chicago:4,mf:5,check:4,strategy:3,evidence:3,capital:4},selfReported:false,decisionMakers:[],deals:["Exhibit on Superior, River North, 298 units, $119M (Jul 2026)"],sources:[{id:"R21-1",label:"Research source 1",url:"https://www.costar.com/article/364713062/utah-investor-shells-out-for-chicago-apartment-tower",accessed:"n/a (research CSV)",published:"2026-07-09"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Paywalled source; limited detail.",acts:[],history:[]},
- {id:"INV-022",name:"Branch Capital Partners",type:"Institutional",hq:"Not confirmed (Chicago)",strategy:"Not stated",check:"About $41M",scores:{chicago:4,mf:5,check:2,strategy:3,evidence:2,capital:2},selfReported:false,decisionMakers:[],deals:["Trailhead Apartments, 109 units, more than $41M (Aug 2026)","first deal"],sources:[{id:"R22-1",label:"Research source 1",url:"https://www.costar.com/article/775396224/new-firm-buys-109-unit-apartment-building-along-chicagos-606-elevated-trail",accessed:"n/a (research CSV)",published:"2026-08-03"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Paywalled source; first deal, so track record is thin.",acts:[],history:[]},
- {id:"INV-023",name:"Individual investor A",type:"Qualified purchaser",hq:"Chicago",strategy:"Value-add; 1920s-era building",check:"About $34M",scores:{chicago:5,mf:5,check:3,strategy:3,evidence:2,capital:3},selfReported:false,decisionMakers:[{name:"Individual investor A",title:"Individual (name withheld)",src:"R23-1"}],deals:["422-424 W Melrose St, 169 units, $34M (August 2026)"],sources:[{id:"R23-1",label:"Research source 1",url:"https://www.multihousingnews.com/?p=1005101847",accessed:"n/a (research CSV)",published:null}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Confirm month and year; individual, so check entity structure.",acts:[],history:[]},
- {id:"INV-024",name:"Individual investors B",type:"Qualified purchaser",hq:"Chicago",strategy:"Value-add",check:"About $43M",scores:{chicago:5,mf:5,check:3,strategy:4,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Individual investors B",title:"Two individuals (names withheld)",src:"R24-1"}],deals:["Gold Coast building, $43M (Jul 2025), held by Berger Realty Group before sale"],sources:[{id:"R24-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/07/18/gold-coast-chicago-apartments-sell-for-174000-per-unit",accessed:"n/a (research CSV)",published:"2025-07-18"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Two individuals; deal may be held through an entity (not shown).",acts:[],history:[]},
- {id:"INV-025",name:"Randolph Street Realty Capital",type:"Qualified purchaser",hq:"Chicago (per The Real Deal)",strategy:"Multifamily ownership",check:"About $40M",scores:{chicago:5,mf:5,check:2,strategy:3,evidence:3,capital:3},selfReported:false,decisionMakers:[{name:"Contact to confirm",title:"Co-founder",src:"R25-1"},{name:"Contact to confirm",title:"Co-founder",src:"R25-1"}],deals:["Panorama Apartments, Lakeview, 140 units, about $40M (Jan 2025)"],sources:[{id:"R25-1",label:"Research source 1",url:"https://therealdeal.com/chicago/2025/01/17/blitzlake-partners-sells-development-in-hot-chicago-submarket",accessed:"n/a (research CSV)",published:"2025-01-17"}],stage:"identified",owner:"Unassigned",approval:null,next:"",last:"2026-11-03",suppressed:false,rel:[],notes:"From the investor research CSV. Research flags: Investor type unclear; may belong in Institutional.",acts:[],history:[]}
-];
 let INV=[];
 /* Official websites for some of the 25 research firms, found by web search (checked against the firm's own pages or press releases). Please verify. */
 const KNOWN_SITES = {
@@ -173,7 +145,6 @@ const KNOWN_SITES = {
   "Randolph Street Realty Capital": "https://www.rstrealty.com/",
   "FPA Multifamily": "https://www.fpamf.com/"
 };
-SEED.forEach(s => { if (KNOWN_SITES[s.name]) s.website = KNOWN_SITES[s.name]; });
 const fillableSites = () => INV.filter(i => !i.website && !i.noWebsite && KNOWN_SITES[i.name]);
 async function fillKnownSites() {
   let n = 0, failed = 0;
@@ -389,7 +360,7 @@ async function saveScoring(cfg, okText) { // applies, then saves for everyone
   const before = JSON.stringify(scoringConfig());
   applyScoring(cfg);
   if (JSON.stringify(scoringConfig()) === before) return "No changes to save.";
-  if (S.demo || !window.INVESTORS_API) return okText + " (Demo mode: not saved for the team.)";
+  if (!window.INVESTORS_API) return "Changed on screen only: the shared list is not available on this address.";
   const data = { kind: "scoring", config: JSON.stringify(scoringConfig()), updated_by: who(), updated: new Date().toISOString().slice(0, 16).replace("T", " ") };
   try {
     if (S.scoreRid) await api("PATCH", setCol() + "/" + S.scoreRid, data);
@@ -399,26 +370,12 @@ async function saveScoring(cfg, okText) { // applies, then saves for everyone
   } catch (e) { return "Changed on screen but could not save for the team (" + e.message + "). Try again."; }
 }
 async function persist(i) {
-  if (S.demo) return null;
   if (i.rid) return api("PATCH", COL + "/" + i.rid, toRec(i));
   const r = await api("POST", COL, toRec(i)); i.rid = r.record.id; return r;
 }
 async function saveRemote(i, okText) {
-  try { await persist(i); return okText + (S.demo ? " (Demo mode: not saved.)" : ""); }
+  try { await persist(i); return okText; }
   catch (e) { return "Could not save to the shared list (" + e.message + "). The change is on screen only. Check that you are signed in as a workspace member, then try again."; }
-}
-async function seedShared() {
-  if (!can("edit")) return;
-  let n = 0;
-  S.loading = true; render();
-  try {
-    for (const s of SEED) { const c = JSON.parse(JSON.stringify(s)); c.review = "approved"; await persist(c); n++; }
-    S.msg = "Loaded " + n + " research investors into the shared list.";
-  } catch (e) {
-    S.msg = "Stopped after " + n + " of " + SEED.length + " (" + e.message + "). Ask your instructor to check the list before reloading.";
-  }
-  try { await loadInv(); S.loadError = ""; } catch (e) { S.loadError = "Could not reload the shared list (" + e.message + ")."; }
-  S.loading = false; render();
 }
 async function confirmRecord(id) {
   if (!can("edit")) return;
@@ -486,11 +443,7 @@ async function boot() {
   try { await loadInv(); S.loadError = ""; }
   catch (e) {
     if (window.INVESTORS_API) S.loadError = "Could not reach the shared list. Reload the page, and if it keeps failing ask the team to check the server. (" + e.message + ")";
-    else { // a here.now test link has no shared list: show made-up sample data, nothing is saved
-      S.demo = true;
-      INV = SEED.map(x => { const c = JSON.parse(JSON.stringify(x)); c.review = "approved"; return c; });
-      [0, 6, 9, 10, 14, 18, 19].forEach(k => { if (INV[k]) { INV[k].approval = { by: "Approver", date: AS_OF }; INV[k].stage = "approved for outreach"; } });
-    }
+    else S.loadError = "The shared list is not available on this address. Open the team's site on Render instead.";
   }
   if (window.INVESTORS_API) {
     try { S.research = await api("GET", "/api/research/status"); } catch (e) { S.research = { enabled: false }; }
@@ -801,9 +754,8 @@ function render() {
   const views = { "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Import": vImport, "About": vAbout };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
-  else if (S.demo) top = '<div class="notice"><strong>Demo mode.</strong> The shared list is not available on this link, so the page shows made-up sample outreach. Changes are not saved.</div>';
   else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;
-  else if (INV.length === 0) top = `<div class="card"><p>The shared list is empty. Load the 25 research investors once:</p><button class="primary" onclick="seedShared()" ${can("edit") ? "" : "disabled"}>Load research investors</button></div>`;
+  else if (INV.length === 0) top = `<div class="card"><p>No investors yet. Add one with <strong>Add investor</strong>, or use the Import tab to bring in a file.</p></div>`;
   if (window.INVESTORS_API && S.auth && !S.auth.required && !S.loading) top = '<div class="notice"><strong>No team password is set.</strong> Anyone with this address can view and change everything. Add a team password in Render (the TEAM_PASSWORD setting) to lock the tool.</div>' + top;
   const notice = S.msg ? `<div class="notice msg">${esc(S.msg)}</div>` : "";
   document.getElementById("app").innerHTML = top + notice + (S.loading ? "" : views[S.tab]());
@@ -951,7 +903,7 @@ function listHtml() {
     <td data-label="To fix">${flagChipsShort(i, 2)}</td></tr>`).join("");
   return `<table class="rtable"><thead><tr><th><input type="checkbox" id="selAll" onchange="selectAllShown(this.checked)" aria-label="Select all shown"></th><th>Investor</th><th>Fit</th><th>Status</th><th>Stage</th><th>To fix</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="muted">No investors match.</td></tr>'}</tbody></table>`;
 }
-function pilotPanel() {
+function resultsPanel() {
   const all = INV.filter(i => !i.suppressed), n = all.length;
   if (!n) return "";
   const pct = (a, b) => (b ? Math.round(a * 100 / b) : 0) + "%";
@@ -960,9 +912,9 @@ function pilotPanel() {
   const contacts = all.filter(i => realContacts(i).some(d => d.email || d.linkedin) || i.contactEmail).length;
   const rated = all.filter(i => i.rankFeedback), agree = rated.filter(i => i.rankFeedback === "agree").length;
   const row = (label, val, note) => `<tr><td>${label}</td><td><strong>${val}</strong></td><td class="muted">${note}</td></tr>`;
-  return `<details class="card" ${S.open.pilot ? "open" : ""} ontoggle="S.open.pilot=this.open"><summary><strong>Pilot results</strong> <span class="muted">(the measures from the scoping worksheet, live from the data)</span></summary>
+  return `<details class="card" ${S.open.results ? "open" : ""} ontoggle="S.open.results=this.open"><summary><strong>Results</strong> <span class="muted">(live from the data)</span></summary>
     <div class="wrap" style="margin-top:8px"><table><thead><tr><th>Measure</th><th>Now</th><th>Based on</th></tr></thead><tbody>
-    ${row("Investors in the pilot list", n, "all investors not asked to be removed")}
+    ${row("Investors in the list", n, "all investors not asked to be removed")}
     ${row("Scored by a person", pct(scored.length, n), scored.length + " of " + n)}
     ${row("Meeting DL3's criteria (fit " + FIT_THRESHOLD + "+)", pct(meets, scored.length), meets + " of " + scored.length + " scored")}
     ${row("With a sourced deal history", pct(history, n), history + " of " + n + ": at least one deal and a web source")}
@@ -1019,7 +971,7 @@ function vProspects(){
     <div id="bulkBar" style="margin-top:8px">${bulkBarHtml()}</div>
     <div id="invList" style="margin-top:8px">${listHtml()}</div>
   </div>
-  ${pilotPanel()}
+  ${resultsPanel()}
   <details class="card" ${S.open.groups ? "open" : ""} ontoggle="S.open.groups=this.open"><summary><strong>Browse by group</strong> <span class="muted">(flag, type, confidence or stage)</span></summary><div style="margin-top:8px">${groupsCard()}</div></details>`;
 }
 
@@ -1179,29 +1131,6 @@ async function resetWeights() {
 }
 function vAbout(){
   const w=scoringEditor();
-  const req=[
-    ["1. Purpose and scope","Research investors with the full workflow: find, review, reach out","Demonstrated"],
-    ["2. Users and roles","One shared team password; everyone with it can view, edit and approve, and approvals record the typed name","Partial: one shared password, not a sign-in per person"],
-    ["3. Core data","Type, HQ, contacts, strategy, check range, deals, scores, sources, owner, approval, follow-up, notes","Demonstrated"],
-    ["4. Data quality and provenance","Dated sources, confidence from source dates, flags with fixes, duplicate blocking","Demonstrated"],
-    ["5. Scoring and ranking","Weighted criteria with anchors, deal cap, ranked list with filters, review step before an investor counts","Demonstrated"],
-    ["6. Relationship mapping","Introduction paths recorded per investor and saved","Demonstrated"],
-    ["7. Outreach workflow","Approval required before contact, outreach tracker with interest and follow-ups; the tool does not send messages","Demonstrated"],
-    ["8. Activity logging","Every touch logged with date, channel, person, summary and next step","Demonstrated"],
-    ["9. Follow-up and reminders","Suggested follow-up dates, overdue and due-today lists","Demonstrated; the 30-day inactivity threshold is a placeholder"],
-    ["10. Import and export","File (PDF, CSV, text) and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
-    ["11. Privacy, security, compliance","Optional team password; an investor can be removed permanently on request; suppression flag; contacts only as entered","Partial: one shared password"],
-    ["12. Reporting and dashboard","Counts at the top of the Investors page that lead to the investors behind them, search, views, groups","Demonstrated; time saved is not measured"],
-    ["13. Technical requirements","Web page and server on Render with a Postgres database; data saved and exportable","Demonstrated"],
-    ["14. Items to confirm","Listed below","Open, pending DL3"]
-  ];
-  const confirm=[
-    "How DL3's Agora account and this tool should connect (Agora's API is not publicly documented; a contacts CSV import works today)",
-    "Each project's own equity target and check range, inside DL3's overall $5M to $250M",
-    "Who holds the team password and how often it should change",
-    "How long to keep investor and contact data (removal on request is built)",
-    "Pilot acceptance targets"
-  ];
   const decided=[
     "Every investor needs a company website and a point of contact (an email or a LinkedIn link); anything missing shows as something to fix",
     "Every investor type is eligible: family offices, institutions and qualified purchasers",
@@ -1228,9 +1157,8 @@ function vAbout(){
       <li>Confidence is separate: High means two or more dated sources from the past 24 months, Medium means at least one dated source, Low means self-reported or no dated source.</li>
     </ul>
     ${w}</div>
-  <details class="card"><summary><strong>Requirements check</strong> (the original pilot spec)</summary>${table(["Section","How this tool shows it","Status"],req)}</details>
   <details class="card"><summary><strong>Decisions already made</strong></summary><ul>${decided.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>
-  <details class="card"><summary><strong>Still to confirm with DL3</strong></summary><ul>${confirm.map(c=>`<li>${esc(c)}</li>`).join("")}</ul></details>`;
+`;
 }
 
 boot();
