@@ -103,7 +103,8 @@ details.card>summary{cursor:pointer}
 
 <script>
 /* ---------- Constants ---------- */
-const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30, FIT_THRESHOLD=70;
+const AS_OF="2026-11-03", CUT="2024-11-03", INACT_DAYS=30, DEFAULT_THRESHOLD=60;
+let FIT_THRESHOLD=DEFAULT_THRESHOLD; // the fit score that counts as meeting DL3's standard; the team can change it on the About page
 const BASE_CRIT=[
   {k:"chicago",label:"Chicago interest"},
   {k:"mf",label:"Mixed-income / multifamily experience"},
@@ -371,9 +372,10 @@ function applyScoring(cfg) { // checks what came from the database before using 
     });
   }
   CRIT = BASE_CRIT.concat(extra); S.weights = w;
+  FIT_THRESHOLD = cfg && Number.isInteger(cfg.threshold) && cfg.threshold >= 0 && cfg.threshold <= 100 ? cfg.threshold : DEFAULT_THRESHOLD;
 }
 function scoringConfig() {
-  return { weights: Object.assign({}, S.weights), custom: CRIT.filter(c => c.custom).map(c => ({ k: c.k, label: c.label, weight: S.weights[c.k] })) };
+  return { threshold: FIT_THRESHOLD, weights: Object.assign({}, S.weights), custom: CRIT.filter(c => c.custom).map(c => ({ k: c.k, label: c.label, weight: S.weights[c.k] })) };
 }
 async function loadScoring() {
   if (!window.INVESTORS_API) return;
@@ -1119,6 +1121,8 @@ function scoringEditor() {
     <td>${c.custom ? `<button class="dangerbtn" onclick="removeCriterion('${c.k}')">Remove</button>` : ""}</td></tr>`).join("");
   const by = S.scoreBy ? `Last changed by ${esc(S.scoreBy)}${S.scoreAt ? " on " + esc(S.scoreAt) : ""}.` : "These are the original weights.";
   return `<div class="wrap"><table><thead><tr><th>Criterion</th><th>Weight</th><th>Share of score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="row" style="margin:10px 0 4px"><label><strong>Standard for "meets criteria":</strong> a fit score of <input type="number" min="0" max="100" step="1" id="th_val" value="${FIT_THRESHOLD}" style="width:80px"> or higher</label></div>
+    <div class="muted" style="margin-bottom:6px">Investors below it are still shown, marked as below the standard. Originally ${DEFAULT_THRESHOLD}.</div>
     <div class="muted" style="margin:6px 0">Weights are relative: only their proportions matter, and every investor's score is always out of 100. A weight of 0 switches a criterion off without deleting it. ${by}</div>
     <div class="row"><button class="primary" onclick="saveWeights()">Save weights</button><button onclick="resetWeights()">Back to the original six weights</button></div>
     <h3 style="margin:14px 0 6px">Add a criterion</h3>
@@ -1145,12 +1149,14 @@ function readWeights() { // the numbers typed in the table, or an error
 function scErr(t) { document.getElementById("scerr").textContent = t; }
 async function applyEditor(extraCustom, okText) {
   const r = readWeights(); if (r.error) return scErr(r.error);
-  const cfg = scoringConfig(); cfg.weights = Object.assign({}, cfg.weights, r.w);
+  const th = Number(val("th_val").trim());
+  if (val("th_val").trim() === "" || !Number.isInteger(th) || th < 0 || th > 100) return scErr("The standard must be a whole number from 0 to 100.");
+  const cfg = scoringConfig(); cfg.weights = Object.assign({}, cfg.weights, r.w); cfg.threshold = th;
   cfg.custom = cfg.custom.map(c => ({ k: c.k, label: c.label, weight: r.w[c.k] }));
   if (extraCustom) cfg.custom.push(extraCustom);
   S.msg = await saveScoring(cfg, okText); render();
 }
-async function saveWeights() { await applyEditor(null, "Weights saved. Every investor's score now uses them."); }
+async function saveWeights() { await applyEditor(null, "Saved. Every investor's score and the \"meets criteria\" standard now use these settings."); }
 async function addCriterion() {
   const name = cleanCrit(val("nc_name")), raw = val("nc_w").trim(), w = Number(raw);
   if (!name) return scErr("Give the new criterion a name.");
@@ -1203,7 +1209,7 @@ function vAbout(){
     "Everyone with the team password can approve outreach; the approval records the typed name",
     "Everyone with the team password sees everything",
     "Follow-ups: Hot 2 days, Warm 5, Lukewarm 10, No reply 7, Committed 7. Inactive after 30 days. After 3 unanswered attempts, try another approach",
-    "Investors below a fit of 70 are still shown, marked as below the criteria",
+    "Investors below the fit standard (" + FIT_THRESHOLD + " to start; the team can change it) are still shown, marked as below the criteria",
     "The team can change each criterion's weight and add criteria; changes apply to everyone",
     "An investor can be removed permanently, after confirming they asked to be removed (this works with or without the team password)"
   ];
@@ -1218,7 +1224,7 @@ function vAbout(){
       <li>5 means strong, verified evidence. 3 means partial or indirect. 1 means weak or inferred. 0 means no evidence or conflicting evidence.</li>
       <li>Equity check fit is judged against DL3's overall range of $5M to $250M. Each project has its own target within it.</li>
       <li>If there are no verified deals, the fit score is held at 60 until a deal is added.</li>
-      <li>Investors below a fit of 70 are still shown, marked as below the criteria.</li>
+      <li>The standard for "meets criteria" is a fit of ${FIT_THRESHOLD} or higher (the team can change it below). Investors under it are still shown, marked as below the criteria.</li>
       <li>Confidence is separate: High means two or more dated sources from the past 24 months, Medium means at least one dated source, Low means self-reported or no dated source.</li>
     </ul>
     ${w}</div>
