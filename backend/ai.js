@@ -86,7 +86,8 @@ export function pageToText(html) {
   if (mails.length) t += "\nEmail addresses linked on the page: " + [...new Set(mails)].slice(0, 50).join(", ");
   return t.slice(0, 120_000);
 }
-export async function fetchPageText(url) {
+// Opens one public https page and returns its text and raw HTML (the HTML is only used to find links).
+export async function fetchPage(url) {
   let u = new URL(url);
   for (let hop = 0; hop < 4; hop++) {
     await requirePublic(u);
@@ -98,9 +99,11 @@ export async function fetchPageText(url) {
     if (!/text\/(html|plain)/i.test(res.headers.get("content-type") || "")) throw aiError("The AI import can only read web pages, not other file types.");
     const chunks = []; let size = 0;
     for await (const c of res.body) { size += c.length; if (size > 2_000_000) break; chunks.push(c); }
-    const text = pageToText(Buffer.concat(chunks).toString("utf8"));
+    const html = Buffer.concat(chunks).toString("utf8");
+    const text = pageToText(html);
     if (text.length < 50) throw aiError("The AI import found almost no text on that page.");
-    return text;
+    return { text, html };
   }
   throw aiError("The AI import was sent around too many times by that page.");
 }
+export const fetchPageText = async url => (await fetchPage(url)).text;

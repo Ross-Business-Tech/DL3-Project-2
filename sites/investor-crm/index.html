@@ -318,7 +318,7 @@ function fromRec(r, k) {
     review: d.review_status || "approved",
     website: d.website || "", linkedin: d.linkedin || "", contactEmail: d.contact_email || "", noWebsite: !!d.no_website,
     rankFeedback: d.rank_feedback || "",
-    aiStatus: d.ai_status || "", aiSummary: d.ai_summary || "", aiMissing: d.ai_missing || "", aiUpdated: d.ai_updated || "", aiStarted: d.ai_started || ""
+    aiEdited: d.ai_edited || "", aiStatus: d.ai_status || "", aiSummary: d.ai_summary || "", aiMissing: d.ai_missing || "", aiUpdated: d.ai_updated || "", aiStarted: d.ai_started || ""
   };
 }
 async function loadInv() {
@@ -407,9 +407,11 @@ async function refreshOne(i) {
   fresh.id = i.id; fresh.acts = i.acts; fresh.history = i.history; fresh.rel = i.rel;
   INV[k] = fresh; return fresh;
 }
-async function runResearch(id) {
+async function runResearch(id, siteReady) {
   const i = INV.find(x => x.id === id);
   if (!i || !i.rid) { S.msg = "Save the investor first, then run research."; render(); return; }
+  if (!i.website && !siteReady) { S.askSite = id; S.msg = ""; render(); const f = document.getElementById("rs_site"); if (f) f.focus(); return; }
+  if (i.aiEdited && !siteReady && !window.confirm("This replaces the research notes, including what " + i.aiEdited.split(",")[0] + " edited. Run the research again?")) return;
   try { await api("POST", COL + "/" + i.rid + "/research"); }
   catch (e) {
     S.msg = e.message === "HTTP 429" ? "The research limit has been reached for now. Try again later."
@@ -1018,6 +1020,49 @@ function feedbackHtml(i) {
   if (fit(i).unscored) return "";
   return `<div class="muted" style="margin:8px 0 2px">Does this ranking look right to you?</div><div class="row">${FEEDBACK.map(([k, l]) => `<button type="button" class="chip linkchip ${i.rankFeedback === k ? "on" : ""}" onclick="setFeedback('${esc(i.id)}','${k}')">${l}</button>`).join(" ")}</div>`;
 }
+/* ---------- The research box: what the AI found, which people can edit and add to ---------- */
+function aiBox(i) {
+  const editing = S.aiEdit === i.id, asking = S.askSite === i.id;
+  const head = i.aiStatus ? `AI research: ${esc(i.aiStatus)}${i.aiUpdated ? ` <span class="muted">(${esc(i.aiUpdated)})</span>` : ""}` : "Research notes";
+  const tag = i.aiEdited ? ` <span class="chip">Edited by ${esc(i.aiEdited)}</span>` : "";
+  const ask = asking ? `<div class="card" style="margin:8px 0 0;border-color:#23c6b5"><strong>Which website should the AI read?</strong>
+      <div class="muted" style="margin:4px 0">This investor has no website saved. Paste the firm's own website; it is saved on the investor, then the AI reads its pages.</div>
+      <div class="row"><input id="rs_site" placeholder="e.g. acme.com" style="flex:1 1 220px"><button class="primary" onclick="startSiteResearch('${esc(i.id)}')">Save website and research</button><button onclick="S.askSite=null;render()">Cancel</button></div>
+      <div id="rs_err" class="bad" role="alert" style="margin-top:4px"></div></div>` : "";
+  if (editing) return `<div class="card" style="margin:8px 0 0"><strong>${head}</strong>${tag}
+      <label style="display:block;margin-top:8px">What was found (edit or add anything)<textarea id="ai_sum_in" rows="6" maxlength="2000" style="width:100%">${esc(i.aiSummary)}</textarea></label>
+      <label style="display:block;margin-top:8px">Still to check or fill in (delete lines you have resolved)<textarea id="ai_mis_in" rows="4" maxlength="2000" style="width:100%">${esc(i.aiMissing)}</textarea></label>
+      <div class="row" style="margin-top:8px"><button class="primary" onclick="saveAiBox('${esc(i.id)}')">Save</button><button onclick="S.aiEdit=null;render()">Cancel</button></div>
+      <div id="ai_err" class="bad" role="alert" style="margin-top:4px"></div></div>${ask}`;
+  const empty = !i.aiSummary && !i.aiMissing;
+  return `<div class="card" style="margin:8px 0 0"><div class="row" style="justify-content:space-between"><span><strong>${head}</strong>${tag}</span>${can("edit") ? `<button onclick="S.aiEdit='${esc(i.id)}';render()">${empty ? "Add notes" : "Edit"}</button>` : ""}</div>
+    ${empty ? '<div class="muted" style="margin-top:6px">Nothing here yet. Run AI research, or add what you know with Add notes.</div>' : ""}
+    ${i.aiSummary ? `<div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc(i.aiSummary)}</div>` : ""}
+    ${i.aiMissing ? `<div style="margin-top:6px"><strong>Still to check or fill in</strong><div class="flag" style="white-space:pre-wrap">${esc(i.aiMissing)}</div></div>` : ""}
+    ${i.aiStatus ? '<div class="muted" style="margin-top:6px">The AI can be wrong. A person must check every score and source before confirming.</div>' : ""}</div>${ask}`;
+}
+async function saveAiBox(id) {
+  const i = INV.find(x => x.id === id); if (!i || !i.rid) return;
+  const sum = document.getElementById("ai_sum_in").value.trim().slice(0, 2000), mis = document.getElementById("ai_mis_in").value.trim().slice(0, 2000);
+  if (sum === i.aiSummary && mis === i.aiMissing) { S.aiEdit = null; S.msg = "No changes to save."; render(); return; }
+  const by = who() + ", " + todayStr();
+  try {
+    await api("PATCH", COL + "/" + i.rid, { ai_summary: sum, ai_missing: mis, ai_edited: by });
+    i.aiSummary = sum; i.aiMissing = mis; i.aiEdited = by; S.aiEdit = null;
+    i.history.unshift({ date: todayStr(), role: who(), field: "research notes", from: "", to: "edited" });
+    S.msg = "Saved the research notes for " + i.name + ".";
+  } catch (e) { const el = document.getElementById("ai_err"); if (el) el.textContent = "Could not save (" + e.message + "). What you typed is still here."; return; }
+  render();
+}
+async function startSiteResearch(id) {
+  const i = INV.find(x => x.id === id); if (!i) return;
+  const raw = document.getElementById("rs_site").value.trim(), w = cleanWebsite(raw);
+  if (!w) { document.getElementById("rs_err").textContent = raw ? "That does not look like a web address, such as acme.com." : "Enter the firm's website first."; return; }
+  i.website = w; i.noWebsite = false;
+  try { await persist(i); } catch (e) { document.getElementById("rs_err").textContent = "Could not save the website (" + e.message + ")."; return; }
+  S.askSite = null;
+  await runResearch(id, true);
+}
 function detail(i) {
   const f = fit(i), W = S.weights, pending = i.review === "pending";
   const scRows = CRIT.map(c => [esc(c.label), `<select id="sc_${c.k}">${[0, 1, 2, 3, 4, 5].map(n => `<option ${n === (i.scores[c.k] | 0) ? "selected" : ""}>${n}</option>`).join("")}</select>`, share(c.k) + "%", ((i.scores[c.k] | 0) * W[c.k] / 5 * 100 / Math.max(1, wsum())).toFixed(1)]);
@@ -1034,7 +1079,7 @@ function detail(i) {
   const aiBtn = canResearch
     ? `<button ${running ? "disabled" : ""} onclick="runResearch('${esc(i.id)}')">${running ? "Researching..." : i.aiStatus === "done" ? "Run AI research again" : "Run AI research"}</button>`
     : `<button disabled title="${window.INVESTORS_API ? "AI research is not set up yet" : "Available on the Render version"}">Run AI research</button>`;
-  const aiBlock = i.aiStatus ? `<div class="card" style="margin:8px 0 0"><strong>AI research: ${esc(i.aiStatus)}</strong>${i.aiUpdated ? ` <span class="muted">(${esc(i.aiUpdated)})</span>` : ""}<div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc(i.aiSummary)}</div>${i.aiMissing ? `<div style="margin-top:6px"><strong>Still to check or fill in</strong><div class="flag" style="white-space:pre-wrap">${esc(i.aiMissing)}</div></div>` : ""}<div class="muted" style="margin-top:6px">The AI can be wrong. A person must check every score and source before confirming.</div></div>` : "";
+  const aiBlock = aiBox(i);
   const next = pending ? "Check the details, score the investor and fix the flags below, then confirm the details."
     : !i.approval ? "The details are confirmed. Approve this investor for outreach when DL3 is ready to contact them."
     : "Approved by " + esc(i.approval.by) + " on " + esc(i.approval.date) + ". Log each contact on the Outreach page.";

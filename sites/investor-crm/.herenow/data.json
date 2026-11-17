@@ -150,6 +150,10 @@
     "rank_feedback": {
      "type": "string",
      "maxLength": 20
+    },
+    "ai_edited": {
+     "type": "string",
+     "maxLength": 120
     }
    },
    "access": {

@@ -175,7 +175,8 @@ test("research job end to end", { skip: !url && "TEST_DATABASE_URL not set" }, a
   assert.equal((await call("POST", `/api/investors/${confirmed}/research`)).status, 409);
   assert.equal((await call("POST", "/api/investors/rec_00000000000000000000000000/research")).status, 404);
   assert.equal((await call("PATCH", `/api/investors/${id}`, { ai_status: "done" })).status, 400, "ai_ fields are server-only");
-  assert.equal((await call("POST", "/api/investors", { name: "x", ai_summary: "forged" })).status, 400);
+  assert.equal((await call("POST", "/api/investors", { name: "x", ai_updated: "2026-01-01" })).status, 400);
+  assert.equal((await call("PATCH", `/api/investors/${id}`, { ai_summary: "edited by a person", ai_edited: "Pat, 2026-11-17" })).status, 200, "people can edit the research box");
 
   // a contact a person already entered is never replaced
   const idKeep = await add("Has Contact Inc", { decision_text: "My Own Person | Boss | mine@example.com | " });

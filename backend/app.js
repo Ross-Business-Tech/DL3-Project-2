@@ -23,6 +23,8 @@ export function newId() {
 }
 
 const COLLECTIONS = Object.keys(MANIFEST.collections); // the only table names that ever reach SQL
+// The research box can be edited by people; the status and times are only ever set by the server.
+const PERSON_AI_FIELDS = new Set(["ai_summary", "ai_missing", "ai_edited"]);
 const DATE_FIELDS = new Set(["touch_date", "follow_up", "next_date", "last_date", "approval_date", "ai_updated"]);
 const CHOICES = { // fixed lists used by the outreach tracker
   interest: ["Committed", "Hot", "Warm", "Lukewarm", "No reply yet", "Passed"],
@@ -37,7 +39,7 @@ export function validate(body, { requireName, server = false, collection = "inve
   const data = {};
   for (const [key, value] of Object.entries(body)) {
     const f = fields[key];
-    if (!f || (!server && key.startsWith("ai_"))) return { error: `Unknown field: ${key}` };
+    if (!f || (!server && key.startsWith("ai_") && !PERSON_AI_FIELDS.has(key))) return { error: `Unknown field: ${key}` };
     if (f.type === "string") {
       if (typeof value !== "string") return { error: `${key} must be text.` };
       const v = f.trim ? value.trim() : value;
@@ -96,14 +98,16 @@ async function setData(pool, id, patch) {
 // Runs in the background after the request has been answered. Never overwrites what a person typed.
 export async function runResearchJob(pool, id, name) {
   try {
-    const { text, urls } = await askModel(name);
+    const website = ((await pool.query("select data->>'website' as w from investors where id = $1", [id])).rows[0] || {}).w || "";
+    const { text, urls, via } = await askModel(name, website);
     console.log("research answered:", JSON.stringify({ pages: urls.size, chars: text.length })); // no names or keys in the log
     const { data } = sanitizeResult(text, urls);
-    if (urls.size === 0) data.ai_missing = ("The AI service returned no web pages, so nothing could be checked or saved. Its web search may be switched off for this key.\n" + data.ai_missing).slice(0, 2000);
+    if (urls.size === 0) data.ai_missing = ((website ? "" : "No website is saved for this investor and the AI service has no web search. Add the firm's website and run research again.\n") + "The AI service returned no web pages, so nothing could be checked or saved.\n" + data.ai_missing).slice(0, 2000);
+    if (via === "site") data.ai_summary = ("Read from the firm's own website (web search was not available), so news and deals reported elsewhere are not covered.\n" + data.ai_summary).slice(0, 2000);
     const { rows } = await pool.query("select data from investors where id = $1", [id]);
     if (!rows.length) return;
     const cur = rows[0].data;
-    const patch = { ai_status: "done", ai_updated: data.ai_updated, ai_missing: data.ai_missing };
+    const patch = { ai_status: "done", ai_updated: data.ai_updated, ai_missing: data.ai_missing, ai_edited: "" }; // a fresh run replaces the notes, edits included
     let summary = data.ai_summary;
     for (const f of TEXT_FIELDS) if (!cur[f] && data[f]) patch[f] = data[f];
     if (data.type && data.type !== cur.type) summary += `\nNote: the AI suggests the investor type may be ${data.type}.`;
@@ -112,7 +116,11 @@ export async function runResearchJob(pool, id, name) {
   } catch (e) {
     console.error("research failed:", e.message);
     const msg = typeof e.status === "number" ? `The AI service returned an error (code ${e.status}).` : /^The AI /.test(e.message) ? e.message : "Research could not be completed.";
-    try { await setData(pool, id, { ai_status: "failed", ai_missing: `Research failed: ${msg} Try again later or fill the details in by hand.` }); } catch (e2) { console.error("could not record failure:", e2.message); }
+    try {
+      const cur = ((await pool.query("select data from investors where id = $1", [id])).rows[0] || {}).data || {};
+      if (cur.ai_edited) await setData(pool, id, { ai_status: "failed", ai_summary: `The last research attempt failed: ${msg}\n${cur.ai_summary || ""}`.slice(0, 2000) }); // a person's edits are kept
+      else await setData(pool, id, { ai_status: "failed", ai_missing: `Research failed: ${msg} Try again later or fill the details in by hand.` });
+    } catch (e2) { console.error("could not record failure:", e2.message); }
   }
 }
 

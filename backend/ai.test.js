@@ -74,3 +74,41 @@ test("page text: scripts removed, links to emails kept, and private addresses ar
   assert.ok(t.includes("Our team") && t.includes("Pat & Co") && t.includes("pat@firm.com") && !t.includes("evil"));
   for (const u of ["https://127.0.0.1/", "https://10.0.0.5/x", "https://169.254.169.254/latest", "https://[::1]/", "http://example.com/"]) await assert.rejects(fetchPageText(u), /The AI import/, u);
 });
+
+import { askFromSite, siteSystemPrompt } from "./research.js";
+test("website research: reads the firm's own pages and may cite only those", async () => {
+  const m = await mock(() => answer('{"firm_type":null}', ["https://elsewhere.example/not-allowed"]));
+  const html = '<a href="/our-team">Team</a> <a href="https://other.example/about">x</a> <a href="/careers">c</a> <a href="/files/deck.pdf">pdf</a>';
+  const fetched = [];
+  const fetcher = async url => { fetched.push(url); if (/nowhere/.test(url)) throw new Error("404"); return { text: "Text of " + url + " ".repeat(60), html: url === "https://site.example/" ? html : "" }; };
+  try {
+    await withEnv({ OPENAI_API_KEY: "k", OPENAI_BASE_URL: m.base }, async () => {
+      const r = await askFromSite("Some Firm", "https://site.example/", fetcher);
+      assert.equal(r.via, "site");
+      assert.ok(r.urls.has("https://site.example/") && r.urls.has("https://site.example/our-team") && r.urls.has("https://site.example/about"));
+      assert.ok(!r.urls.has("https://other.example/about"), "other sites are not read");
+      assert.ok(!fetched.some(u => /careers|deck\.pdf|other\.example/.test(u)));
+      assert.ok(!r.urls.has("https://elsewhere.example/not-allowed"), "what the model cites is not trusted; only pages that were opened");
+    });
+    const sent = m.seen[0].body;
+    assert.equal(sent.tools, undefined);
+    assert.match(sent.input, /<page number="1" address="https:\/\/site\.example\/">/);
+    assert.match(sent.instructions, /numbered <page> blocks/); assert.doesNotMatch(sent.instructions, /web search to research/);
+    await assert.rejects(askFromSite("X", "https://nowhere.example/", async () => { throw new Error("blocked"); }), /could not read that firm's website/);
+  } finally { m.srv.close(); }
+});
+
+test("openai research falls back to the website only when search returns no pages", async () => {
+  const calls = [];
+  const bare = text => [200, { status: "completed", output: [{ type: "message", content: [{ type: "output_text", text, annotations: [] }] }] }];
+  const m = await mock(req => { calls.push(!!req.body.tools); return bare(req.body.tools ? "{}" : '{"hq":"Chicago"}'); });
+  const fetcher = async url => ({ text: "Page text " + url + " ".repeat(60), html: "" });
+  try {
+    await withEnv({ OPENAI_API_KEY: "k", OPENAI_BASE_URL: m.base }, async () => {
+      assert.equal((await askModel("F", "https://s.example/", fetcher)).via, "site");
+      assert.deepEqual(calls, [true, false], "tried search first, then the site");
+      const none = await askModel("F", "", fetcher);
+      assert.equal(none.urls.size, 0, "no website and no search: nothing to read");
+    });
+  } finally { m.srv.close(); }
+});
