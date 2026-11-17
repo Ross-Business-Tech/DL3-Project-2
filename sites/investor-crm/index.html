@@ -614,7 +614,7 @@ function contactsResultHtml(r) {
 }
 
 /* ---------- Investors from a CSV (no AI): one row per firm, saved as "To confirm", never scored ---------- */
-const INV_CSV_COLS = ["name", "type", "hq", "website", "linkedin", "contact_email", "strategy", "check_size", "sources_text", "deals_text", "contacts", "notes", "self_reported"];
+const INV_CSV_COLS = ["name", "type", "hq", "website", "linkedin", "contact_email", "strategy", "check_size", "sources_text", "deals_text", "contacts", "s_chicago", "s_mf", "s_check", "s_strategy", "s_evidence", "s_capital", "notes", "self_reported"];
 async function importInvestorsCsv() {
   const file = document.getElementById("imp_invcsv").files[0];
   if (!file) { S.iimp = { msg: "Choose a CSV file first." }; render(); return; }
@@ -626,13 +626,28 @@ async function importInvestorsCsv() {
   const idx = {}; INV_CSV_COLS.forEach(c => { idx[c] = rows[0].findIndex(h => key(h) === key(c)); });
   if (idx.name < 0) { S.iimp = { msg: "The file needs a column called name. Other columns: " + INV_CSV_COLS.slice(1).join(", ") + "." }; render(); return; }
   const cell = (r, c, n, multi) => { const v = idx[c] < 0 ? "" : String(r[idx[c]] || ""); return (multi ? v.replace(/\r/g, "").split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n") : v.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim()).slice(0, n); };
-  const seen = new Set(INV.map(i => norm(i.name))), made = [], dup = [], bad = [];
+  const seen = new Set(INV.map(i => norm(i.name))), made = [], dup = [], bad = [], updated = [];
+  const upd = !!(document.getElementById("imp_upd") || {}).checked;
+  const SCORE_COLS = [["s_chicago", "chicago"], ["s_mf", "mf"], ["s_check", "check"], ["s_strategy", "strategy"], ["s_evidence", "evidence"], ["s_capital", "capital"]];
+  const scoreOf = (r, c) => { const v = cell(r, c, 3); return /^[0-5]$/.test(v) ? +v : null; };
   let failed = 0;
   S.iimp = { busy: true, msg: "Importing " + (rows.length - 1) + " rows..." }; render();
   for (const r of rows.slice(1)) {
     const name = cell(r, "name", 160);
     if (!name) { bad.push("(a row with no name)"); continue; }
-    if (seen.has(norm(name))) { dup.push(name); continue; }
+    if (seen.has(norm(name))) {
+      const inv = INV.find(x => norm(x.name) === norm(name));
+      if (upd && inv && inv.rid && inv.review === "pending") { // fill in a firm that is still "To confirm": sources, deals and scores from the file
+        if (cell(r, "sources_text", 4000, true)) inv.sources = parseSources(cell(r, "sources_text", 4000, true));
+        if (cell(r, "deals_text", 4000, true)) inv.deals = lines(cell(r, "deals_text", 4000, true));
+        SCORE_COLS.forEach(([c, k]) => { const v = scoreOf(r, c); if (v !== null) inv.scores[k] = v; });
+        const w = cleanWebsite(cell(r, "website", 300)); if (w && !inv.website) inv.website = w;
+        const l = cell(r, "linkedin", 300) ? cleanLinkedIn(cell(r, "linkedin", 300)) : ""; if (l && !inv.linkedin) inv.linkedin = l;
+        const e = cell(r, "contact_email", 160); if (e && validEmail(e) && !inv.contactEmail) inv.contactEmail = e;
+        try { await persist(inv); updated.push(name); } catch (e2) { failed++; bad.push(name + ": " + (e2.detail || e2.message)); }
+      } else dup.push(name);
+      continue;
+    }
     seen.add(norm(name));
     const type = cell(r, "type", 40), site = cell(r, "website", 300), li = cell(r, "linkedin", 300), em = cell(r, "contact_email", 160);
     const rec = {
@@ -641,6 +656,7 @@ async function importInvestorsCsv() {
       review_status: "pending", stage: "identified", owner: "Unassigned", last_date: todayStr(), suppressed: false,
       self_reported: /^(yes|true|1)$/i.test(cell(r, "self_reported", 10))
     };
+    SCORE_COLS.forEach(([c]) => { const v = scoreOf(r, c); if (v !== null) rec[c] = v; });
     const w = cleanWebsite(site); if (w) rec.website = w;
     const l = li ? cleanLinkedIn(li) : ""; if (l) rec.linkedin = l;
     if (em && validEmail(em)) rec.contact_email = em;
@@ -652,13 +668,13 @@ async function importInvestorsCsv() {
     try { const res = await api("POST", COL, rec); made.push(name); } catch (e) { failed++; bad.push(name + ": " + (e.detail || e.message)); }
   }
   try { await loadInv(); } catch (e) { /* the list reloads next time */ }
-  S.iimp = { made: made.length, dup, bad, failed }; render();
+  S.iimp = { made: made.length, updated: updated.length, dup, bad, failed }; render();
 }
 function investorsResultHtml(r) {
   if (r.msg) return `<div class="notice">${esc(r.msg)}</div>`;
   const list = (t, a) => a.length ? `<div style="margin-top:6px"><strong>${a.length} ${t}</strong> <span class="muted">${a.slice(0, 8).map(esc).join(", ")}${a.length > 8 ? ", ..." : ""}</span></div>` : "";
   return `<div class="card"><h2 style="margin-top:0">Investors imported</h2>
-    <p><strong>${r.made}</strong> investor${r.made === 1 ? "" : "s"} added as <strong>To confirm</strong>, with no scores yet. Open each one, check it, score it and press Confirm record.</p>
+    <p><strong>${r.made}</strong> investor${r.made === 1 ? "" : "s"} added as <strong>To confirm</strong>${r.updated ? ", and <strong>" + r.updated + "</strong> firms already in the list were filled in with the file's sources, deals and scores" : ""}. Check them, then confirm: tick several on the Investors page and use <em>Confirm details</em>.</p>
     ${list("already in the list (skipped)", r.dup)}${list("could not be added", r.bad)}</div>`;
 }
 
@@ -763,7 +779,8 @@ function vImport() {
     <div class="row"><input id="imp_url" placeholder="https://" style="min-width:260px" ${off}><button class="primary" onclick="importSite()" ${busy}>Read website</button></div></div>
   ${S.iimp ? investorsResultHtml(S.iimp) : ""}
   <div class="card"><h2>Import investors from a CSV (no AI needed)</h2>
-    <p class="muted">Add firms from a spreadsheet saved as CSV. Needs a <strong>name</strong> column; optional columns: type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts (one per line: name | title | email | LinkedIn), notes, self_reported. Firms already in the list are skipped. Everything arrives as "To confirm" and unscored.</p>
+    <p class="muted">Add firms from a spreadsheet saved as CSV. Needs a <strong>name</strong> column; optional columns: type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts (one per line: name | title | email | LinkedIn), notes, self_reported. Score columns s_chicago, s_mf, s_check, s_strategy, s_evidence and s_capital take 0 to 5. New firms arrive as "To confirm".</p>
+    <label><input type="checkbox" id="imp_upd"> Also fill in firms already in the list that are still "To confirm" (replaces their sources, deals and scores with the file's; confirmed investors are never touched)</label>
     <div class="row"><input type="file" id="imp_invcsv" accept=".csv,text/csv"><button class="primary" onclick="importInvestorsCsv()" ${S.iimp && S.iimp.busy ? "disabled" : ""}>Import investors</button></div></div>
   ${S.cimp ? contactsResultHtml(S.cimp) : ""}
   <div class="card"><h2>Import contacts from a CSV</h2>
@@ -850,6 +867,7 @@ function bulkBarHtml() {
   return `<div class="card" style="margin:0 0 8px;border-color:#23c6b5"><strong>${n} selected</strong>
     <div class="row" style="margin-top:6px">
       ${canResearch ? `<button ${b ? "disabled" : ""} onclick="bulkResearch()">Run AI research</button>` : ""}
+      <button onclick="bulkConfirm()">Confirm details</button>
       <button onclick="bulkApprove()">Approve for outreach</button>
       <button onclick="bulkCsv()">Download CSV</button>
       <button class="dangerbtn" onclick="S.rmAsk=true;updateBulk()">Remove selected</button>
@@ -870,6 +888,11 @@ async function bulkResearch() {
   const rids = selected().filter(i => i.rid && i.review === "pending" && i.aiStatus !== "running").map(i => i.rid);
   if (!rids.length) { S.msg = "Research only runs on investors waiting for review (To confirm). None of the selected investors are."; render(); return; }
   await researchBatch(rids);
+}
+async function bulkConfirm() {
+  const sel = selected(), ok = sel.filter(i => i.review === "pending");
+  const r = await eachSaved(ok, i => { i.review = "approved"; });
+  S.msg = outcome("Confirmed", r, sel.length - ok.length) + (sel.length - ok.length ? " Skipped ones were already confirmed." : ""); render();
 }
 async function bulkApprove() {
   if (!S.who) { S.msg = "Type your name at the top of the page first, so the approval shows who gave it."; render(); const w = document.getElementById("whoIn"); if (w) w.focus(); return; }

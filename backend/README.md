@@ -39,7 +39,7 @@ The search tool must also be allowed for the organization that owns the key (Cla
 
 ## Import from a CSV (no AI)
 
-The **Import** tab also takes a spreadsheet saved as CSV with one row per firm (a `name` column, plus optional type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts, notes, self_reported). Firms already in the list are skipped. Every firm arrives as "To confirm" and unscored. This needs no AI key.
+The **Import** tab also takes a spreadsheet saved as CSV with one row per firm (a `name` column, plus optional type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts, s_chicago, s_mf, s_check, s_strategy, s_evidence, s_capital, notes, self_reported). Firms already in the list are skipped. Every firm arrives as "To confirm" and unscored. This needs no AI key.
 
 ## Import from a PDF or a website
 
