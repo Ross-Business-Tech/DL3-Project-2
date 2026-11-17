@@ -544,6 +544,7 @@ async function importContactsCsv() {
   for (const r of rows.slice(1)) {
     const company = cell(r, c.company), name = cell(r, c.name).slice(0, 160), title = cell(r, c.title).slice(0, 160);
     let email = cell(r, c.email).slice(0, 160), liRaw = cell(r, c.linkedin).slice(0, 300);
+    if (EXAMPLE_ROW.test(company)) continue;
     if (!company || !name) { invalid++; continue; }
     if (email && !validEmail(email)) { email = ""; }
     const li = liRaw ? cleanLinkedIn(liRaw) : "";
@@ -568,6 +569,27 @@ function contactsResultHtml(r) {
     <div class="muted" style="margin-top:6px">A contact without an email or LinkedIn link shows as "Contact has no email or LinkedIn" until someone adds one.</div></div>`;
 }
 
+/* ---------- CSV templates: an example row shows what each column should hold ---------- */
+const EXAMPLE_ROW = /^EXAMPLE - /i; // the template's example rows are skipped if someone uploads them unchanged
+function downloadTemplate(kind) {
+  const files = {
+    investors: ["dl3-investors-template.csv", INV_CSV_COLS, [
+      "EXAMPLE - delete this row", "Family office", "Chicago, IL", "example.com", "https://www.linkedin.com/company/example", "info@example.com",
+      "Long-term multifamily and mixed-income equity", "$10M-$30M per deal",
+      "Example news article | https://example.com/news/deal | 2026-11-10 | 2026-10-01\nExample firm website | https://example.com/team | 2026-11-10 | ",
+      "Example Apartments, Chicago, 120 units, $30M (2025)\nExample Lofts, Chicago, 80 units (2024)",
+      "Jane Example | Head of acquisitions | jane@example.com | https://www.linkedin.com/in/jane-example\nSam Example | Principal | | ",
+      "4", "3", "4", "3", "4", "3", "Any extra notes", "no"]],
+    contacts: ["dl3-contacts-template.csv", ["company", "contact_name", "title", "email", "linkedin"], [
+      "EXAMPLE - delete this row", "Jane Example", "Head of acquisitions", "jane@example.com", "https://www.linkedin.com/in/jane-example"]]
+  };
+  const [name, head, row] = files[kind];
+  const csv = "\ufeff" + [head.join(","), row.map(csvCell).join(",")].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
 /* ---------- Investors from a CSV (no AI): one row per firm, saved as "To confirm", never scored ---------- */
 const INV_CSV_COLS = ["name", "type", "hq", "website", "linkedin", "contact_email", "strategy", "check_size", "sources_text", "deals_text", "contacts", "s_chicago", "s_mf", "s_check", "s_strategy", "s_evidence", "s_capital", "notes", "self_reported"];
 async function importInvestorsCsv() {
@@ -589,6 +611,7 @@ async function importInvestorsCsv() {
   S.iimp = { busy: true, msg: "Importing " + (rows.length - 1) + " rows..." }; render();
   for (const r of rows.slice(1)) {
     const name = cell(r, "name", 160);
+    if (EXAMPLE_ROW.test(name)) continue;
     if (!name) { bad.push("(a row with no name)"); continue; }
     if (seen.has(norm(name))) {
       const inv = INV.find(x => norm(x.name) === norm(name));
@@ -735,11 +758,13 @@ function vImport() {
   ${S.iimp ? investorsResultHtml(S.iimp) : ""}
   <div class="card"><h2>Import investors from a CSV (no AI needed)</h2>
     <p class="muted">Add firms from a spreadsheet saved as CSV. Needs a <strong>name</strong> column; optional columns: type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts (one per line: name | title | email | LinkedIn), notes, self_reported. Score columns s_chicago, s_mf, s_check, s_strategy, s_evidence and s_capital take 0 to 5. New firms arrive as "To confirm".</p>
+    <p><a href="#" onclick="downloadTemplate('investors');return false"><strong>Download the template</strong></a> <span class="muted">(a CSV with every column and one example row to copy, then delete)</span></p>
     <label><input type="checkbox" id="imp_upd"> Also fill in firms already in the list that are still "To confirm" (replaces their sources, deals and scores with the file's; confirmed investors are never touched)</label>
     <div class="row"><input type="file" id="imp_invcsv" accept=".csv,text/csv"><button class="primary" onclick="importInvestorsCsv()" ${S.iimp && S.iimp.busy ? "disabled" : ""}>Import investors</button></div></div>
   ${S.cimp ? contactsResultHtml(S.cimp) : ""}
   <div class="card"><h2>Import contacts from a CSV</h2>
     <p class="muted">Add points of contact to investors already in the list. The file needs a <strong>company</strong> column (matched to the investor's name) and a <strong>contact_name</strong> column; <strong>title</strong>, <strong>email</strong> and <strong>linkedin</strong> are optional. The "Download contacts for Agora" file has these columns. Contacts already there are skipped, and "Contact to confirm" placeholders are replaced.</p>
+    <p><a href="#" onclick="downloadTemplate('contacts');return false"><strong>Download the template</strong></a> <span class="muted">(a CSV with the five columns and one example row to copy, then delete)</span></p>
     <div class="row"><input type="file" id="imp_contacts" accept=".csv,text/csv"><button class="primary" onclick="importContactsCsv()" ${S.cimp && S.cimp.busy ? "disabled" : ""}>Import contacts</button></div></div>
   <div class="card"><h2>Export</h2>
     <p class="muted">Download the whole list as a CSV file that opens in Excel or Google Sheets. It includes scores, fit, sources, review status and notes.</p>
