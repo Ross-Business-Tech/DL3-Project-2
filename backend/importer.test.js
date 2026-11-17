@@ -128,6 +128,18 @@ test("import jobs end to end", { skip: !url && "TEST_DATABASE_URL not set" }, as
   assert.equal(again.result.created.length, 0);
   assert.equal(again.result.skippedDuplicates.length, 3);
 
+  // the one file door: a CSV is read as text; a binary file is refused; a PDF still works
+  const postFile = (buf, name) => fetch(base + "/api/import/file", { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(name) }, body: buf }).then(async r => ({ status: r.status, json: await r.json() }));
+  const csv = await postFile(Buffer.from("name,city\nImported Gamma Capital,Chicago\n"), "list.csv");
+  assert.equal(csv.status, 202);
+  const csvJob = await waitJob(csv.json.id);
+  assert.equal(csvJob.status, "done");
+  assert.match(JSON.stringify(last.messages[0].content), /Imported Gamma Capital/);
+  assert.ok(!last.messages[0].content.some || !JSON.stringify(last.messages[0].content).includes('"document"'), "a CSV is sent as text, not a document");
+  assert.equal((await postFile(Buffer.from([0x50, 0x4b, 3, 4, 0, 0, 1, 2]), "sheet.xlsx")).status, 400);
+  assert.equal((await postFile(pdf, "any-name.dat")).status, 202);
+  await new Promise(r => setTimeout(r, 300));
+
   // website import: the model is given the fetch tool and the page address
   const site = await json("POST", "/api/import/website", { url: "https://example.com/investors" });
   assert.equal(site.status, 202);

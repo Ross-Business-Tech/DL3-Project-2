@@ -635,11 +635,12 @@ async function startImportRequest(label, send) {
     await pollImport(j.id);
   } catch (e) { S.imp = { msg: e.message }; render(); }
 }
-async function importPdf() {
-  const f = document.getElementById("imp_pdf").files[0];
-  if (!f) { S.imp = { msg: "Choose a PDF file first." }; render(); return; }
+async function importFile() {
+  const f = document.getElementById("imp_file").files[0];
+  if (!f) { S.imp = { msg: "Choose a file first." }; render(); return; }
   if (f.size > 10 * 1024 * 1024) { S.imp = { msg: "That file is larger than 10 MB." }; render(); return; }
-  await startImportRequest(f.name, () => fetch("/api/import/pdf", { method: "POST", headers: { "Content-Type": "application/pdf", "X-Filename": encodeURIComponent(f.name) }, body: f }));
+  if (/\.(xlsx?|docx?|pptx?)$/i.test(f.name)) { S.imp = { msg: "Excel and Word files cannot be read directly. In that program choose Save As, then CSV (for Excel) or PDF, and upload that." }; render(); return; }
+  await startImportRequest(f.name, () => fetch("/api/import/file", { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(f.name) }, body: f }));
 }
 async function importSite() {
   const u = document.getElementById("imp_url").value.trim();
@@ -686,7 +687,7 @@ function importResultHtml(r) {
     ${r.skippedIndividuals ? ` ${r.skippedIndividuals} individual people ignored (firms only).` : ""}
     ${r.leftOver ? ` ${r.leftOver} more firms were not imported because one import is limited to 50. Run it again for the rest.` : ""}</p>
     ${names}${run}
-    <p class="muted">Details come only from the PDF or page and are unchecked. Scores need the research step, so the new investors rank low until they are researched and confirmed.</p></div>`;
+    <p class="muted">Details come only from the file or page and are unchecked. Scores need the research step, so the new investors rank low until they are researched and confirmed.</p></div>`;
 }
 function vImport() {
   const ready = importReady();
@@ -699,9 +700,9 @@ function vImport() {
   ${why ? `<div class="notice">${esc(why)}</div>` : ""}
   ${imp.msg ? `<div class="notice">${esc(imp.msg)}</div>` : ""}
   ${imp.result ? importResultHtml(imp.result) : ""}
-  <div class="card"><h2>Import from a PDF</h2>
-    <p class="muted">Upload a PDF list of investors (up to 10 MB). The AI reads it and adds each firm to the review queue. Individual people are skipped.</p>
-    <div class="row"><input type="file" id="imp_pdf" accept="application/pdf,.pdf" ${off}><button class="primary" onclick="importPdf()" ${busy}>Read PDF</button></div></div>
+  <div class="card"><h2>Import from a file</h2>
+    <p class="muted">Upload a file that lists investors (up to 10 MB): a PDF, or a CSV, TXT or HTML file. The AI reads it and adds each firm to the review queue. Individual people are skipped. For Excel or Word, save as CSV or PDF first.</p>
+    <div class="row"><input type="file" id="imp_file" accept=".pdf,.csv,.tsv,.txt,.md,.html,.htm,.json,application/pdf,text/*" ${off}><button class="primary" onclick="importFile()" ${busy}>Read file</button></div></div>
   <div class="card"><h2>Import from a website</h2>
     <p class="muted">Paste the address of a page that lists investors. It must start with https://.</p>
     <div class="row"><input id="imp_url" placeholder="https://" style="min-width:260px" ${off}><button class="primary" onclick="importSite()" ${busy}>Read website</button></div></div>
@@ -806,7 +807,7 @@ function vProspects(){
     ${metric(link(ready, "setView('ready')"), "Approved, ready to contact")}
   </div>
   ${fillableSites().length ? `<div class="notice"><strong>${fillableSites().length} investors are missing a website that we found by web search.</strong> They may need a quick check. <button class="primary" onclick="fillKnownSites()">Fill in ${fillableSites().length} websites</button></div>` : ""}
-  <div class="row" style="margin:4px 0 8px"><button class="primary" onclick="toggleAdd()">Add investor</button><button onclick="go('Import')">Import from PDF or website</button><button onclick="exportCsv()">Export CSV</button></div>
+  <div class="row" style="margin:4px 0 8px"><button class="primary" onclick="toggleAdd()">Add investor</button><button onclick="go('Import')">Import from a file or website</button><button onclick="exportCsv()">Export CSV</button></div>
   ${add}
   <div class="card">
     <div class="row" style="margin-bottom:8px"><input type="search" placeholder="Search by name" value="${esc(S.q)}" oninput="setQ(this.value)" style="flex:1 1 200px"></div>
@@ -969,7 +970,7 @@ function vAbout(){
     ["7. Outreach workflow","Approval required before contact, outreach tracker with interest and follow-ups; the tool does not send messages","Demonstrated"],
     ["8. Activity logging","Every touch logged with date, channel, person, summary and next step","Demonstrated"],
     ["9. Follow-up and reminders","Suggested follow-up dates, overdue and due-today lists","Demonstrated; the 30-day inactivity threshold is a placeholder"],
-    ["10. Import and export","PDF and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
+    ["10. Import and export","File (PDF, CSV, text) and website import with AI; full CSV download","Demonstrated on the Render version; import needs the AI key"],
     ["11. Privacy, security, compliance","Optional team password; an investor can be removed permanently on request; suppression flag; contacts only as entered","Partial: one shared password"],
     ["12. Reporting and dashboard","Counts at the top of the Investors page that lead to the investors behind them, search, views, groups","Demonstrated; time saved is not measured"],
     ["13. Technical requirements","Web page and server on Render with a Postgres database; data saved and exportable","Demonstrated"],
@@ -995,7 +996,7 @@ function vAbout(){
   ];
   return `
   <div class="card"><h2>How the tool works</h2>
-    <ol><li><strong>Find:</strong> add investors by hand, or import a PDF or website. The AI can research each one.</li>
+    <ol><li><strong>Find:</strong> add investors by hand, or import a file or website. The AI can research each one.</li>
     <li><strong>Review:</strong> fix what is flagged, check the scores and sources, then confirm the details.</li>
     <li><strong>Reach out:</strong> approve an investor for outreach, log every email, call and meeting, and follow up on time.</li></ol></div>
   <div class="card"><h2>How the score works</h2>

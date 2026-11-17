@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { researchEnabled, askModel, sanitizeResult, CRITERIA, clip } from "./research.js";
-import { askPdf, askWebsite, sanitizeFirms, checkWebsiteUrl, MAX_PDF_BYTES } from "./importer.js";
+import { askPdf, askText, askWebsite, fileKind, sanitizeFirms, checkWebsiteUrl, MAX_PDF_BYTES } from "./importer.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_DIR = path.resolve(HERE, "../sites/investor-crm");
@@ -291,6 +291,14 @@ export function createApp(pool) {
     let name = "document.pdf";
     try { name = clip(decodeURIComponent(String(req.get("x-filename") || "")).split(/[\\/]/).pop(), 80) || name; } catch { /* keep default */ }
     await startImport(pool, res, { kind: "PDF", label: name, sourceUrl: "", read: () => askPdf(buf) });
+  });
+  // One door for any file: a PDF, or a text-based file (CSV, TXT, Markdown, HTML, JSON). The contents decide, not the name.
+  app.post("/api/import/file", importLimit, express.raw({ type: () => true, limit: MAX_PDF_BYTES }), async (req, res) => {
+    const buf = req.body, kind = fileKind(buf);
+    if (!kind) return res.status(400).json({ error: "That file type cannot be read. Use a PDF, or a text-based file such as CSV, TXT or HTML. For Excel or Word, save it as CSV or PDF first." });
+    let name = "file";
+    try { name = clip(decodeURIComponent(String(req.get("x-filename") || "")).split(/[\\/]/).pop(), 80) || name; } catch { /* keep default */ }
+    await startImport(pool, res, { kind: kind === "pdf" ? "PDF" : "file", label: name, sourceUrl: "", read: () => (kind === "pdf" ? askPdf(buf) : askText(buf.toString("utf8"))) });
   });
   app.post("/api/import/website", importLimit, async (req, res) => {
     const url = checkWebsiteUrl(req.body && req.body.url);
