@@ -94,6 +94,7 @@ details.card>summary{cursor:pointer}
 <nav id="nav">
   <button data-tab="Prospects" onclick="S.selected=null;go('Prospects')">Investors</button>
   <button data-tab="Tracker" onclick="go('Tracker')">Outreach</button>
+  <button data-tab="Discover" onclick="go('Discover')">Monthly Research</button>
   <button data-tab="Import" onclick="go('Import')">Import</button>
   <button data-tab="About" onclick="go('About')">About</button>
 </nav>
@@ -450,6 +451,8 @@ async function boot() {
     try { S.auth = await api("GET", "/api/session"); } catch (e) { S.auth = { required: false, signedIn: true }; }
     document.getElementById("signOut").hidden = !S.auth.required;
     INV.filter(x => x.aiStatus === "running").forEach(x => pollResearch(x.id, Date.now()));
+    await loadDiscovery();
+    if (S.disc && S.disc.run && S.disc.run.status === "running") pollDiscovery();
   }
   await loadScoring();
   await loadTracker();
@@ -773,10 +776,101 @@ function vImport() {
     <button onclick="exportContactsCsv()">Download contacts for Agora</button></div>`;
 }
 
+/* ---------- Monthly Research: the AI finds new family offices; a person adds the ones worth keeping ---------- */
+const DISC_DAYS = 30;
+async function loadDiscovery() {
+  if (!window.INVESTORS_API) return;
+  try { const j = await api("GET", "/api/discovery"); S.disc = Object.assign(S.disc || {}, j, { loadErr: "" }); }
+  catch (e) { S.disc = Object.assign(S.disc || {}, { loadErr: "Could not load Monthly Research. Reload the page to try again." }); }
+}
+const discFit = f => fit({ scores: Object.assign({}, f.scores) });
+async function startDiscovery() {
+  S.disc = Object.assign(S.disc || {}, { busy: true, msg: "" }); render();
+  try { await api("POST", "/api/discovery"); await loadDiscovery(); render(); await pollDiscovery(); }
+  catch (e) { S.disc.busy = false; S.disc.msg = e.detail || "Monthly research could not start (" + e.message + ")."; render(); }
+}
+async function pollDiscovery() {
+  if (S.disc && S.disc.polling) return;
+  S.disc.polling = true;
+  const end = Date.now() + 12 * 60 * 1000;
+  while (Date.now() < end) {
+    await sleep(5000);
+    await loadDiscovery();
+    if (!S.disc.run || S.disc.run.status !== "running") break;
+  }
+  S.disc.polling = false; S.disc.busy = false;
+  if (S.disc.run && S.disc.run.status === "running") S.disc.msg = "This is taking longer than usual. Reload the page in a few minutes to see the results.";
+  try { S.research = await api("GET", "/api/research/status"); } catch (e) { /* keep */ }
+  render();
+}
+async function discAct(key, action) {
+  const run = S.disc && S.disc.run; if (!run) return;
+  const f = run.finds.find(x => x.key === key); if (!f || f.busy) return;
+  f.busy = true; render();
+  try {
+    const j = await api("POST", "/api/discovery/" + run.id + "/" + action, { key });
+    f.state = j.state; f.rid = j.rid || f.rid;
+    if (j.state === "added") { await loadInv(); S.disc.msg = f.name + " was added to the list as To confirm."; }
+    else if (j.state === "duplicate") S.disc.msg = f.name + " is already in the list, so it was not added again.";
+  } catch (e) { S.disc.msg = e.detail || "That did not save (" + e.message + "). Try again."; }
+  f.busy = false; render();
+}
+function openAdded(rid) { const i = INV.find(x => x.rid === rid); if (i) { go("Prospects"); selectInv(i.id); } }
+function discCard(f) {
+  const ft = discFit(f), below = !ft.unscored && ft.t < FIT_THRESHOLD;
+  const scoreLine = CRIT.filter(c => c.k in f.scores).map(c => `<span class="chip">${esc(c.label)}: ${f.scores[c.k] | 0}/5</span>`).join("");
+  const deals = f.deals.length ? `<ul style="margin:6px 0 0 18px;padding:0">${f.deals.map(d => `<li>${esc(d.text)} <span class="muted">(source ${d.source | 0})</span></li>`).join("")}</ul>` : '<p class="muted" style="margin:6px 0 0">No deal with a source, so "evidence of deals" is 0.</p>';
+  const srcs = f.sources.map((s, k) => `<div style="font-size:13px">${k + 1}. <a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.label)}</a>${s.published ? ` <span class="muted">(${esc(s.published)})</span>` : ""}</div>`).join("");
+  const act = f.state === "added" ? `<span class="chip">Added</span> <a href="#" onclick="openAdded('${esc(f.rid || "")}');return false">Open it</a>`
+    : f.state === "skipped" ? '<span class="chip">Skipped</span>'
+    : f.state === "duplicate" ? '<span class="chip">Already in the list</span>'
+    : `<button class="primary" onclick="discAct('${esc(f.key)}','add')" ${f.busy ? "disabled" : ""}>Add to list</button><button onclick="discAct('${esc(f.key)}','skip')" ${f.busy ? "disabled" : ""}>Skip</button>`;
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div style="min-width:0;flex:1 1 220px"><strong>${esc(f.name)}</strong>
+        <div class="muted" style="font-size:12px">${esc(f.type)}${f.hq ? " · " + esc(f.hq) : ""}${f.website ? ` · <a href="${esc(f.website)}" target="_blank" rel="noopener noreferrer">${esc(f.website.replace(/^https:\/\/(www\.)?/, "").replace(/\/$/, ""))}</a>` : ""}</div></div>
+      <div style="text-align:right"><div style="font-size:22px;font-weight:700">${ft.unscored ? "–" : ft.t}</div><div class="muted" style="font-size:12px">suggested fit${below ? `, below ${FIT_THRESHOLD}` : ""}</div></div>
+    </div>
+    ${f.event ? `<p style="margin:8px 0 4px"><strong>Why:</strong> ${esc(f.event)}</p>` : ""}
+    ${f.strategy || f.check_size ? `<div class="muted" style="font-size:13px">${f.strategy ? "Strategy: " + esc(f.strategy) : ""}${f.strategy && f.check_size ? " · " : ""}${f.check_size ? "Check size: " + esc(f.check_size) : ""}</div>` : ""}
+    ${deals}
+    <details style="margin-top:6px"><summary class="muted" style="cursor:pointer">Scores and sources</summary><div style="margin:6px 0">${scoreLine}</div>${srcs}</details>
+    <div class="row" style="margin-top:10px">${act}</div></div>`;
+}
+function vDiscover() {
+  const d = S.disc || {}, run = d.run;
+  const ready = !!(window.INVESTORS_API && d.enabled);
+  const running = d.busy || (run && run.status === "running");
+  const ago = run ? Math.floor((Date.now() - Date.parse(run.createdAt)) / 864e5) : null;
+  const due = !run || ago >= DISC_DAYS;
+  const left = S.research && typeof S.research.remainingToday === "number" ? ` ${S.research.remainingToday} AI runs left today.` : "";
+  const why = !window.INVESTORS_API ? "Monthly Research needs the AI service, which is only on the Render version of this tool."
+    : d.loadErr ? d.loadErr : !ready && d.enabled === false ? "Monthly Research is not set up yet: the AI key has not been added." : "";
+  const finds = run && run.status === "done" ? run.finds.slice().sort((a, b) => (b.state === "new") - (a.state === "new") || discFit(b).t - discFit(a).t) : [];
+  const open = finds.filter(f => f.state === "new").length;
+  let result = "";
+  if (running) result = '<div class="notice">Searching recent news for new family offices. This usually takes 2 to 5 minutes; you can keep using the tool and come back.</div>';
+  else if (run && run.status === "failed") result = `<div class="notice">The last run did not finish: ${esc(run.error || "unknown problem")} Nothing was added. Try again later.</div>`;
+  else if (run && run.status === "done") {
+    const dr = run.dropped || {};
+    const extra = [dr.duplicate ? `${dr.duplicate} already in your list` : "", dr.noSource ? `${dr.noSource} without a checkable source` : ""].filter(Boolean).join(" and ");
+    result = `${run.note ? `<div class="notice">${esc(run.note)}</div>` : ""}
+      <h2 style="margin:16px 0 4px">Found ${finds.length} new firm${finds.length === 1 ? "" : "s"}${open && open !== finds.length ? ` (${open} still to decide)` : ""}</h2>
+      <p class="muted" style="margin:0 0 10px">Sorted by suggested fit, using the team's current weights.${extra ? " Left out: " + esc(extra) + "." : ""}</p>
+      ${finds.map(discCard).join("") || '<div class="card muted">No new firms this time. Try again next month.</div>'}`;
+  }
+  return `${why ? `<div class="notice">${esc(why)}</div>` : ""}${d.msg ? `<div class="notice msg">${esc(d.msg)}</div>` : ""}
+  <div class="card"><h2>Monthly Research</h2>
+    <p>Finds up to 20 family offices that are not in your list yet, from the last year of Chicago real estate news and broker deal announcements (The Real Deal, Bisnow, Crain's, REjournals and others). Each one comes with why it was picked, its sources and a suggested score. Nothing is added until you press <strong>Add to list</strong>; added firms arrive as <strong>To confirm</strong> so someone checks the score against the sources.</p>
+    <p class="muted">${run ? `Last run: ${esc(run.createdAt.slice(0, 10))} (${ago === 0 ? "today" : ago + " day" + (ago === 1 ? "" : "s") + " ago"}). ` : "Not run yet. "}${due ? "Due now: run it once a month." : `Next run due in about ${DISC_DAYS - ago} days.`} Each run uses one AI run.${left}</p>
+    <button class="primary" onclick="startDiscovery()" ${ready && !running ? "" : "disabled"}>${running ? "Searching..." : "Run Monthly Research"}</button></div>
+  ${result}`;
+}
+
 /* ---------- Views ---------- */
 function render() {
   document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("primary", b.dataset.tab === S.tab));
-  const views = { "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Import": vImport, "About": vAbout };
+  const views = { "Prospects": vProspects, "Tracker": vTracker, "Group": vGroup, "Discover": vDiscover, "Import": vImport, "About": vAbout };
   let top = "";
   if (S.loading) top = '<div class="notice">Loading the shared list...</div>';
   else if (S.loadError) top = `<div class="notice">${esc(S.loadError)}</div>`;

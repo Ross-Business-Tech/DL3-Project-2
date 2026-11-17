@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { researchEnabled, askModel, sanitizeResult, CRITERIA, clip } from "./research.js";
 import { askPdf, askText, askWebsite, fileKind, sanitizeFirms, checkWebsiteUrl, MAX_PDF_BYTES } from "./importer.js";
+import { askDiscovery, sanitizeDiscovery, findToRecord, isDuplicate } from "./discovery.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_DIR = path.resolve(HERE, "../sites/investor-crm");
@@ -155,6 +156,29 @@ async function startImport(pool, res, { kind, label, sourceUrl, read }) {
   runImportJob(pool, id, { kind, label, sourceUrl, read }).catch(e => console.error("import job crashed:", e.message));
 }
 
+
+// ---- Monthly research: find new family offices -----------------------------------------------
+// Runs in the background. Stores up to 20 finds on the run; nothing becomes an investor until a person adds it.
+const DISCOVERY_STALE_MS = 12 * 60 * 1000;
+export async function runDiscoveryJob(pool, jobId) {
+  try {
+    const existing = (await pool.query("select data->>'name' as name, data->>'website' as website from investors")).rows;
+    // firms suggested in earlier runs (added or skipped) are not suggested again
+    const earlier = (await pool.query("select result from discoveries where id <> $1 and result is not null order by created_at desc limit 12", [jobId])).rows
+      .flatMap(r => (r.result && Array.isArray(r.result.finds) ? r.result.finds : []).filter(f => f.state !== "new").map(f => ({ name: f.name, website: f.website })));
+    const known = existing.concat(earlier);
+    const { text, urls } = await askDiscovery(known.map(e => e.name).filter(Boolean));
+    console.log("discovery answered:", JSON.stringify({ pages: urls.size, chars: text.length }));
+    const out = sanitizeDiscovery(text, urls, known);
+    if (urls.size === 0) out.note = "The AI service returned no web pages, so nothing could be checked. Its web search may be switched off for this key.";
+    await pool.query("update discoveries set status = 'done', result = $2 where id = $1", [jobId, out]);
+  } catch (e) {
+    console.error("discovery failed:", e.message);
+    const msg = typeof e.status === "number" ? `The AI service returned an error (code ${e.status}).` : /^The AI /.test(e.message) ? e.message : "Monthly research could not be completed.";
+    await pool.query("update discoveries set status = 'failed', error = $2 where id = $1", [jobId, msg]).catch(e2 => console.error("could not record failure:", e2.message));
+  }
+}
+
 const LOGIN_HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>DL3 Investor CRM: sign in</title>
 <style>
@@ -262,6 +286,8 @@ export function createApp(pool) {
   });
 
   const reads = limiter({ windowMs: 3600_000, max: 1200 });
+  const writeLimiters = {};
+  const colWritesFor = col => writeLimiters[col] || (writeLimiters[col] = limiter({ windowMs: 3600_000, max: col === "investors" ? 300 : parseInt((/^(\d+)\/hour\/ip$/.exec(MANIFEST.collections[col].rateLimit || "") || [])[1], 10) || 300 }));
 
   const researchLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.RESEARCH_HOURLY_LIMIT, 10) || 10 });
   app.get("/api/research/status", reads, async (req, res) => {
@@ -282,6 +308,57 @@ export function createApp(pool) {
     runResearchJob(pool, req.params.id, String(cur.name || "")).catch(e => console.error("research job crashed:", e.message));
   });
 
+
+
+  // ---- Monthly research ----------------------------------------------------------------------
+  const discoveryLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.DISCOVERY_HOURLY_LIMIT, 10) || 3 });
+  const showRun = r => ({ id: r.id, status: r.status, error: r.error, createdAt: r.created_at.toISOString(), finds: (r.result && r.result.finds) || [], dropped: (r.result && r.result.dropped) || null, note: (r.result && r.result.note) || "" });
+  app.get("/api/discovery", reads, async (req, res) => {
+    const { rows } = await pool.query("select * from discoveries order by created_at desc limit 1");
+    res.json({ enabled: researchEnabled(), run: rows.length ? showRun(rows[0]) : null });
+  });
+  app.post("/api/discovery", discoveryLimit, async (req, res) => {
+    if (!researchEnabled()) return res.status(503).json({ error: "Monthly research needs the AI key, which has not been added yet." });
+    const { rows } = await pool.query("select created_at from discoveries where status = 'running' order by created_at desc limit 1");
+    if (rows.length && Date.now() - rows[0].created_at.getTime() < DISCOVERY_STALE_MS) return res.status(409).json({ error: "Monthly research is already running. It takes a few minutes." });
+    if (await runsToday(pool) >= dailyLimit()) return res.status(429).json({ error: "The daily AI limit has been reached. Try again tomorrow." });
+    await pool.query("update discoveries set status = 'failed', error = 'It stopped before finishing.' where status = 'running'");
+    await pool.query("insert into research_runs default values");
+    const id = crypto.randomUUID();
+    await pool.query("insert into discoveries (id, status) values ($1, 'running')", [id]);
+    res.status(202).json({ id });
+    runDiscoveryJob(pool, id).catch(e => console.error("discovery job crashed:", e.message));
+  });
+  // Add one find to the list (as "To confirm"), or skip it. Checked again for duplicates at that moment.
+  app.post("/api/discovery/:id/:action", colWritesFor("investors"), async (req, res) => {
+    const { id, action } = req.params;
+    if (!/^[0-9a-f-]{36}$/.test(id) || !["add", "skip"].includes(action)) return res.status(404).json({ error: "Not found." });
+    const key = req.body && typeof req.body.key === "string" ? req.body.key.slice(0, 200) : "";
+    const db = await pool.connect();
+    try {
+      await db.query("begin");
+      const { rows } = await db.query("select result from discoveries where id = $1 and status = 'done' for update", [id]);
+      const finds = rows.length && rows[0].result && Array.isArray(rows[0].result.finds) ? rows[0].result.finds : null;
+      const f = finds && finds.find(x => x.key === key);
+      if (!f) { await db.query("rollback"); return res.status(404).json({ error: "Not found." }); }
+      if (f.state !== "new") { await db.query("rollback"); return res.status(409).json({ error: f.state === "added" ? "Already added." : "Already skipped." }); }
+      let rid = null;
+      if (action === "add") {
+        const existing = (await db.query("select data->>'name' as name, data->>'website' as website from investors")).rows;
+        if (isDuplicate(f.name, f.website, existing)) { f.state = "duplicate"; }
+        else {
+          const v = validate(findToRecord(f), { requireName: true, server: true });
+          if (v.error) { await db.query("rollback"); return res.status(400).json({ error: "This firm could not be added: " + v.error }); }
+          rid = newId();
+          await db.query("insert into investors (id, data) values ($1, $2)", [rid, v.data]);
+          f.state = "added"; f.rid = rid;
+        }
+      } else f.state = "skipped";
+      await db.query("update discoveries set result = $2 where id = $1", [id, rows[0].result]);
+      await db.query("commit");
+      res.json({ state: f.state, rid });
+    } catch (e) { await db.query("rollback").catch(() => {}); throw e; } finally { db.release(); }
+  });
 
   const importLimit = limiter({ windowMs: 3600_000, max: parseInt(process.env.IMPORT_HOURLY_LIMIT, 10) || 6 });
   app.post("/api/import/pdf", importLimit, express.raw({ type: "application/pdf", limit: MAX_PDF_BYTES }), async (req, res) => {
@@ -314,8 +391,7 @@ export function createApp(pool) {
   // One set of routes per collection in the manifest (investors, outreach, projects).
   // The table name comes from that fixed list, never from the request.
   for (const col of COLLECTIONS) {
-    const writeMax = col === "investors" ? 300 : parseInt((/^(\d+)\/hour\/ip$/.exec(MANIFEST.collections[col].rateLimit || "") || [])[1], 10) || 300;
-    const colWrites = limiter({ windowMs: 3600_000, max: writeMax });
+    const colWrites = colWritesFor(col);
 
     app.get(`/api/${col}`, reads, async (req, res) => {
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
@@ -419,5 +495,7 @@ export async function migrate(pool) {
   await pool.query(`create table if not exists imports (
     id text primary key, status text not null, kind text not null, label text not null,
     result jsonb, error text, created_at timestamptz not null default now())`);
+  await pool.query(`create table if not exists discoveries (
+    id text primary key, status text not null, result jsonb, error text, created_at timestamptz not null default now())`);
   await pool.query("create table if not exists research_runs (id bigserial primary key, started_at timestamptz not null default now())");
 }

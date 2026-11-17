@@ -37,6 +37,20 @@ Setup (in Render, service > **Environment**):
 
 The search tool must also be allowed for the organization that owns the key (Claude Console settings).
 
+## Monthly Research (AI)
+
+The **Monthly Research** tab has one button. The AI searches the last year of Chicago real estate news and broker
+deal announcements for up to 20 family offices that are not in the list yet, and shows each one with why it was
+picked, its sources and a suggested score.
+- Nothing is saved until a person presses **Add to list**. Added firms arrive as **To confirm**, with the AI's
+  suggested scores, so someone checks them against the sources before relying on them. **Skip** hides a firm.
+- Firms already in the list are left out (names are matched ignoring punctuation and words like "LLC" or "Family
+  Office", and by website). Firms added or skipped in earlier runs are not suggested again.
+- A firm is kept only if the web search really returned at least one of its sources. "Evidence of deals" is 0
+  without a sourced deal, and at most 4 with only one. No people are named.
+- Each run counts as one AI run toward `AI_DAILY_LIMIT`. `DISCOVERY_HOURLY_LIMIT` (default 3) caps runs per hour.
+- The page says when the last run was and when the next one is due (30 days).
+
 ## Import from a CSV (no AI)
 
 The **Import** tab also takes a spreadsheet saved as CSV with one row per firm (a `name` column, plus optional type, hq, website, linkedin, contact_email, strategy, check_size, sources_text, deals_text, contacts, s_chicago, s_mf, s_check, s_strategy, s_evidence, s_capital, notes, self_reported). Firms already in the list are skipped. Every firm arrives as "To confirm" and unscored. This needs no AI key.
