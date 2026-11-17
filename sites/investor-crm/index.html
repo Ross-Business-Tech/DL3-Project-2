@@ -1032,7 +1032,23 @@ function aiBox(i) {
   if (editing) return `<div class="card" style="margin:8px 0 0"><strong>${head}</strong>${tag}
       <label style="display:block;margin-top:8px">What was found (edit or add anything)<textarea id="ai_sum_in" rows="6" maxlength="2000" style="width:100%">${esc(i.aiSummary)}</textarea></label>
       <label style="display:block;margin-top:8px">Still to check or fill in (delete lines you have resolved)<textarea id="ai_mis_in" rows="4" maxlength="2000" style="width:100%">${esc(i.aiMissing)}</textarea></label>
-      <div class="row" style="margin-top:8px"><button class="primary" onclick="saveAiBox('${esc(i.id)}')">Save</button><button onclick="S.aiEdit=null;render()">Cancel</button></div>
+      <h3 style="margin:14px 0 6px">Profile details</h3>
+      <div class="muted" style="margin-bottom:6px">Anything you fill in here is saved on the investor's profile too, and the matching "still to check" lines are removed.</div>
+      <div class="formgrid">
+        <label>Headquarters<input id="ap_hq" value="${esc(i.hq)}" maxlength="160"></label>
+        <label>Equity check size<input id="ap_check" value="${esc(i.check)}" maxlength="120"></label>
+        <label>Website<input id="ap_site" value="${esc(i.website)}" placeholder="e.g. acme.com"></label>
+        <label>Firm LinkedIn page<input id="ap_li" value="${esc(i.linkedin)}" placeholder="https://www.linkedin.com/company/..."></label>
+        <label>Firm contact email<input id="ap_em" type="email" value="${esc(i.contactEmail)}" placeholder="info@firm.com"></label>
+      </div>
+      <label style="display:block;margin-top:8px">Strategy<textarea id="ap_strat" rows="2" maxlength="400" style="width:100%">${esc(i.strategy)}</textarea></label>
+      <label style="display:block;margin-top:8px">Prior deals, one per line<textarea id="ap_deals" rows="3" style="width:100%">${esc(i.deals.join("\n"))}</textarea></label>
+      <h3 style="margin:14px 0 6px">Add a point of contact <span class="muted">(optional)</span></h3>
+      <div class="formgrid">
+        <label>Name<input id="ap_cn" maxlength="160"></label><label>Title<input id="ap_ct" maxlength="160"></label>
+        <label>Email<input id="ap_ce" type="email"></label><label>LinkedIn link<input id="ap_cl" placeholder="https://www.linkedin.com/in/..."></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="primary" onclick="saveAiBox('${esc(i.id)}')">Save</button><button onclick="S.aiEdit=null;render()">Cancel</button></div>
       <div id="ai_err" class="bad" role="alert" style="margin-top:4px"></div></div>${ask}`;
   const empty = !i.aiSummary && !i.aiMissing;
   return `<div class="card" style="margin:8px 0 0"><div class="row" style="justify-content:space-between"><span><strong>${head}</strong>${tag}</span>${can("edit") ? `<button onclick="S.aiEdit='${esc(i.id)}';render()">${empty ? "Add notes" : "Edit"}</button>` : ""}</div>
@@ -1041,17 +1057,45 @@ function aiBox(i) {
     ${i.aiMissing ? `<div style="margin-top:6px"><strong>Still to check or fill in</strong><div class="flag" style="white-space:pre-wrap">${esc(i.aiMissing)}</div></div>` : ""}
     ${i.aiStatus ? '<div class="muted" style="margin-top:6px">The AI can be wrong. A person must check every score and source before confirming.</div>' : ""}</div>${ask}`;
 }
+// Lines in "still to check" that a newly filled-in detail answers.
+const MISSING_LINE = {
+  hq: /headquarter|\bhq\b/i, check: /check size/i, strategy: /strateg/i, website: /website/i,
+  linkedin: /linkedin (company|page)|firm linkedin|company linkedin/i, email: /(firm|general).{0,20}e-?mail|contact e-?mail/i,
+  deals: /\bdeals?\b|investments?\b/i, contact: /point of contact|decision.?maker|contact name/i
+};
 async function saveAiBox(id) {
   const i = INV.find(x => x.id === id); if (!i || !i.rid) return;
-  const sum = document.getElementById("ai_sum_in").value.trim().slice(0, 2000), mis = document.getElementById("ai_mis_in").value.trim().slice(0, 2000);
-  if (sum === i.aiSummary && mis === i.aiMissing) { S.aiEdit = null; S.msg = "No changes to save."; render(); return; }
+  const err = t => { const el = document.getElementById("ai_err"); if (el) el.textContent = t; };
+  const v = k => document.getElementById(k).value.trim();
+  const sum = v("ai_sum_in").slice(0, 2000);
+  const siteRaw = v("ap_site"), liRaw = v("ap_li"), emRaw = v("ap_em"), site = cleanWebsite(siteRaw), li = liRaw ? cleanLinkedIn(liRaw) : "";
+  if (siteRaw && !site) return err("The website must be a real web address, such as acme.com.");
+  if (liRaw && !li) return err("The firm's LinkedIn page must be a linkedin.com address.");
+  if (emRaw && !validEmail(emRaw)) return err("That firm email address does not look right.");
+  const cn = cleanText(v("ap_cn"), 160), ct = cleanText(v("ap_ct"), 160), ce = cleanText(v("ap_ce"), 160), clRaw = v("ap_cl");
+  const cl = clRaw ? cleanLinkedIn(clRaw) : "";
+  if ((ct || ce || clRaw) && !cn) return err("Give the contact a name, or clear the other contact boxes.");
+  if (ce && !validEmail(ce)) return err("The contact's email address does not look right.");
+  if (clRaw && !cl) return err("The contact's LinkedIn link must be a linkedin.com address.");
+  const before = { hq: i.hq, check: i.check, strategy: i.strategy, website: i.website, linkedin: i.linkedin, email: i.contactEmail, deals: i.deals.join("\n"), contact: realContacts(i).length ? "x" : "", missing: i.aiMissing, summary: i.aiSummary };
+  const nowDeals = lines(v("ap_deals"));
+  const now = { hq: v("ap_hq"), check: v("ap_check"), strategy: v("ap_strat"), website: site, linkedin: li, email: emRaw, deals: nowDeals.join("\n"), contact: (realContacts(i).length || cn) ? "x" : "" };
+  let mis = v("ai_mis_in").slice(0, 2000);
+  const filled = Object.keys(MISSING_LINE).filter(k => !before[k] && now[k]);
+  if (filled.length) mis = lines(mis).filter(l => !filled.some(k => MISSING_LINE[k].test(l))).join("\n");
+  const changed = Object.keys(now).some(k => now[k] !== before[k]) || !!cn || sum !== before.summary || mis !== before.missing;
+  if (!changed) { S.aiEdit = null; S.msg = "No changes to save."; render(); return; }
+  const snap = { hq: i.hq, check: i.check, strategy: i.strategy, website: i.website, linkedin: i.linkedin, contactEmail: i.contactEmail, deals: i.deals, decisionMakers: i.decisionMakers, noWebsite: i.noWebsite };
+  i.hq = now.hq; i.check = now.check; i.strategy = now.strategy; i.website = site; i.linkedin = li; i.contactEmail = emRaw; i.deals = nowDeals;
+  if (site) i.noWebsite = false;
+  if (cn) i.decisionMakers = realContacts(i).concat([{ name: cn, title: ct, email: ce, linkedin: cl, src: "" }]);
   const by = who() + ", " + todayStr();
   try {
-    await api("PATCH", COL + "/" + i.rid, { ai_summary: sum, ai_missing: mis, ai_edited: by });
+    await api("PATCH", COL + "/" + i.rid, Object.assign(toRec(i), { ai_summary: sum, ai_missing: mis, ai_edited: by }));
     i.aiSummary = sum; i.aiMissing = mis; i.aiEdited = by; S.aiEdit = null;
-    i.history.unshift({ date: todayStr(), role: who(), field: "research notes", from: "", to: "edited" });
-    S.msg = "Saved the research notes for " + i.name + ".";
-  } catch (e) { const el = document.getElementById("ai_err"); if (el) el.textContent = "Could not save (" + e.message + "). What you typed is still here."; return; }
+    i.history.unshift({ date: todayStr(), role: who(), field: "research notes and profile", from: "", to: "edited" });
+    S.msg = "Saved the research notes and profile for " + i.name + (filled.length ? ". Removed the 'still to check' lines you answered" : "") + ".";
+  } catch (e) { Object.assign(i, snap); err("Could not save (" + e.message + "). What you typed is still here."); return; }
   render();
 }
 async function startSiteResearch(id) {

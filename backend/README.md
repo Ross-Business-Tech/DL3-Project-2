@@ -23,7 +23,7 @@ What it does and does not do:
 - It only fills empty fields and never overwrites what a person typed. Confirmed investors are never changed.
 - It keeps a source only if the web search really returned that page. It does **not** score: people score each investor, and until they do the investor shows "Not scored yet". Everything it could not find is listed as **Still to check or fill in**.
 - With the OpenAI-style (Toolkit) service it first tries web search. If the service returns no pages, it reads the firm's own website instead (home page plus its team, about, contact and investments pages) and may only cite pages it really opened. If the investor has no website, the page asks for one first. `AI_WEB_SEARCH=off` skips the search attempt.
-- The research box on each investor can be edited by people (summary and still-to-check list); it shows who edited it, and a new research run replaces it after a warning.
+- The research box on each investor can be edited by people (summary and still-to-check list); it shows who edited it, and a new research run replaces it after a warning. Edit mode also has the profile details (headquarters, check size, strategy, website, firm LinkedIn and email, deals, and a new point of contact). Saving updates the profile and removes the matching "still to check" lines.
 - It proposes one point of contact (a name and role, with an email or LinkedIn link) only when a search result shows it. An email must be on the firm's own website domain, and the AI is told never to guess or construct one. A contact a person already entered is never replaced.
 - A person always reviews the result and presses **Confirm record**.
 
